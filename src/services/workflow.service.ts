@@ -2,7 +2,13 @@
 
 import { ResearchService } from './research.service.js';
 import { ContentGenerationService } from './content-generation.service.js';
-import { Content, Post, StyleConfig, ResearchResult } from '../types/index.js';
+import {
+  Content,
+  Post,
+  StyleConfig,
+  ResearchResult,
+  IterationHistory,
+} from '../types/index.js';
 
 /**
  * Workflow service that orchestrates the research → synthesis → generation pipeline
@@ -22,9 +28,16 @@ export class WorkflowService {
    * Generate complete content for a post with agentic research workflow
    * @param post Post information from database
    * @param styleConfig Style configuration from project
-   * @returns Complete content ready for publishing
+   * @param maxIterations Maximum content improvement iterations (default: 4)
+   * @param minQualityScore Minimum quality score to accept (default: 8)
+   * @returns Complete content ready for publishing and iteration history
    */
-  async generatePostContent(post: Post, styleConfig: StyleConfig): Promise<Content> {
+  async generatePostContent(
+    post: Post,
+    styleConfig: StyleConfig,
+    maxIterations: number = parseInt(process.env.MAX_CONTENT_ITERATIONS || '4'),
+    minQualityScore: number = parseInt(process.env.MIN_QUALITY_SCORE || '8')
+  ): Promise<{ content: Content; iterations: IterationHistory[] }> {
     try {
       console.log(`\n[Workflow] Starting content generation for: ${post.title}`);
       console.log(`[Workflow] Niche: ${post.fieldNiche || 'General'}`);
@@ -40,19 +53,22 @@ export class WorkflowService {
 
       if (assessment.needsMore && this.maxResearchIterations > 1) {
         console.log('[Workflow] More research needed:', assessment.suggestion);
-        console.log('[Workflow] Performing additional research...');
+        console.log('[Workflow] 🔍 Activating DEEP RESEARCH mode (scraping + AI summarization)...');
 
-        // Perform targeted follow-up research
-        if (assessment.suggestion) {
-          const additionalResearch = await this.researchService.searchForFacts(
-            assessment.suggestion,
-            5
-          );
+        // Get configuration from env
+        const numUrls = parseInt(process.env.RESEARCH_URLS_TO_SCRAPE || '3');
+        const summaryTokens = parseInt(process.env.RESEARCH_SUMMARY_TOKENS || '500');
 
-          // Merge results
-          research = this.mergeResearch(research, additionalResearch);
-          console.log(`[Workflow] Total sources: ${research.results.length}`);
-        }
+        // Scrape and enrich existing research results with full content
+        research = await this.researchService.scrapeAndEnrichResults(
+          research,
+          this.contentService,
+          numUrls,
+          summaryTokens
+        );
+
+        console.log(`[Workflow] Deep research complete - enriched top ${numUrls} sources`);
+        console.log(`[Workflow] Total sources: ${research.results.length}`);
       } else {
         console.log('[Workflow] Research quality is sufficient');
       }
@@ -61,19 +77,28 @@ export class WorkflowService {
       console.log('\n[Workflow] Step 3: Synthesizing research findings...');
       await this.contentService.synthesizeResearch(research);
 
-      // Step 4: Generate content
-      console.log('\n[Workflow] Step 4: Generating blog post content...');
-      const content = await this.contentService.generateContent({
-        title: post.title,
-        fieldNiche: post.fieldNiche,
-        keywords: post.keywords,
-        research,
-        styleConfig,
-      });
+      // Step 4: Generate content iteratively with quality improvements
+      console.log('\n[Workflow] Step 4: Generating blog post content iteratively...');
+      const minWordCount = parseInt(process.env.MIN_WORD_COUNT || '1000');
+      const targetWordCount = parseInt(process.env.TARGET_WORD_COUNT || '1500');
+
+      const result = await this.contentService.generateContentIteratively(
+        {
+          title: post.title,
+          fieldNiche: post.fieldNiche,
+          keywords: post.keywords,
+          research,
+          styleConfig,
+        },
+        maxIterations,
+        minQualityScore,
+        minWordCount,
+        targetWordCount
+      );
 
       console.log('[Workflow] Content generation complete\n');
 
-      return content;
+      return result;
     } catch (error) {
       console.error('[Workflow] Content generation failed:', error);
       throw new Error(

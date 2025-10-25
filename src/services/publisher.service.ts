@@ -99,9 +99,18 @@ export class PublisherService {
       await this.db.markPostProcessing(post.id);
       await this.db.logInfo(`Starting processing: ${post.title}`, post.id, project.id);
 
-      // Step 1: Generate content (includes research)
-      console.log('   → Generating content...');
-      const content = await this.workflow.generatePostContent(post, project.styleConfig);
+      // Step 1: Generate content (includes research and iterative improvements)
+      console.log('   → Generating content iteratively...');
+      const { content, iterations } = await this.workflow.generatePostContent(
+        post,
+        project.styleConfig
+      );
+
+      // Log iteration results
+      const finalRating = iterations[iterations.length - 1]?.rating;
+      console.log(
+        `   ✓ Content generated with ${iterations.length} iteration(s) (Final score: ${finalRating?.score || 'N/A'}/10)`
+      );
 
       // Validate content
       const validation = this.workflow.validateContent(content);
@@ -110,7 +119,7 @@ export class PublisherService {
       }
 
       const stats = this.workflow.getContentStats(content);
-      console.log(`   ✓ Content generated (${stats.wordCount} words, ~${stats.readingTime} min read)`);
+      console.log(`   ✓ Validated (${stats.wordCount} words, ~${stats.readingTime} min read)`);
 
       // Step 2: Add images if enabled
       if (project.styleConfig.includeImages !== false) {
@@ -120,8 +129,17 @@ export class PublisherService {
         console.log(`   ✓ Added ${content.images.length} image(s)`);
       }
 
-      // Save generated content to database
+      // Save generated content and iterations to database
       await this.db.savePostContent(post.id, content);
+
+      // Delete old iterations first (in case of re-processing)
+      await this.db.deletePostIterations(post.id);
+
+      // Save each iteration with quality ratings
+      for (const iteration of iterations) {
+        await this.db.savePostIteration(post.id, iteration);
+      }
+      console.log(`   ✓ Saved content and ${iterations.length} iteration(s) to database`);
 
       // Step 3: Publish (unless dry-run)
       if (dryRun) {

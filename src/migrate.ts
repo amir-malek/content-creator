@@ -25,30 +25,6 @@ function getMigrationFiles(): string[] {
 }
 
 /**
- * Get PostgreSQL connection string from Supabase URL
- */
-function getConnectionString(): string {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
-  }
-
-  // Extract project ref from Supabase URL
-  // Format: https://PROJECT_REF.supabase.co
-  const projectRef = supabaseUrl.replace('https://', '').split('.')[0];
-
-  // Supabase PostgreSQL connection string
-  // Format: postgresql://postgres:[YOUR-PASSWORD]@db.PROJECT_REF.supabase.co:5432/postgres
-
-  // For direct database access, we need the database password, not the service role key
-  // Let's try using the Supabase pooler connection with service role key
-
-  return `postgresql://postgres.${projectRef}:${serviceRoleKey}@aws-0-us-east-1.pooler.supabase.com:6543/postgres`;
-}
-
-/**
  * Run migrations using direct PostgreSQL connection
  */
 async function runMigrations() {
@@ -77,9 +53,14 @@ async function runMigrations() {
 
     const projectRef = supabaseUrl.replace('https://', '').split('.')[0];
 
-    // Direct database connection with database password
-    // Format: postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
-    connectionString = `postgresql://postgres:${dbPassword}@db.${projectRef}.supabase.co:5432/postgres`;
+    // URL-encode password to handle special characters like $, @, etc.
+    const encodedPassword = encodeURIComponent(dbPassword);
+
+    // Use Supabase session pooler (supports IPv4 - required for free tier)
+    // Format: postgresql://postgres.PROJECT_REF:PASSWORD@aws-1-eu-west-1.pooler.supabase.com:5432/postgres
+    connectionString = `postgresql://postgres.${projectRef}:${encodedPassword}@aws-1-eu-west-1.pooler.supabase.com:5432/postgres`;
+
+    console.log(`🔗 Connecting via session pooler: aws-1-eu-west-1.pooler.supabase.com:5432`);
 
   } catch (err) {
     console.error('❌ Could not construct connection string');
@@ -92,7 +73,9 @@ async function runMigrations() {
     connectionString,
     ssl: {
       rejectUnauthorized: false
-    }
+    },
+    connectionTimeoutMillis: 10000, // 10 seconds
+    query_timeout: 30000, // 30 seconds
   });
 
   try {
@@ -110,16 +93,12 @@ async function runMigrations() {
         await client.query(sql);
         console.log(`   ✅ Success\n`);
       } catch (error: any) {
-        // Check if error is "already exists" - that's OK
-        if (error.message.includes('already exists')) {
-          console.log(`   ℹ️  Already exists (skipping)\n`);
-        } else {
-          console.error(`   ❌ Error: ${error.message}\n`);
+        console.error(`   ❌ Error: ${error.message}\n`);
+        console.error(`   Details: ${error.detail || 'No additional details'}\n`);
 
-          // For critical errors, show manual option
-          if (error.message.includes('syntax') || error.message.includes('permission')) {
-            console.log(`   ⚠️  This migration may need manual execution\n`);
-          }
+        // For critical errors, show manual option
+        if (error.message.includes('syntax') || error.message.includes('permission')) {
+          console.log(`   ⚠️  This migration may need manual execution\n`);
         }
       }
     }
@@ -128,7 +107,7 @@ async function runMigrations() {
     console.log('✅ Verify with: npm run cli stats\n');
 
   } catch (error: any) {
-    console.error('\n❌ Connection failed:', error.message);
+    console.error('\n❌ Connection failed:', error);
     console.error('\n📝 Falling back to manual migration instructions...\n');
     console.error('Run this command to see SQL to copy:');
     console.error('   npm run migrate:manual\n');

@@ -1,7 +1,9 @@
 // Research Service - Web search using SerpAPI
 
 import { getJson } from 'serpapi';
+import axios from 'axios';
 import { ResearchResult, SearchResult } from '../types/index.js';
+import type { ContentGenerationService } from './content-generation.service.js';
 
 /**
  * Research service for gathering up-to-date information from the web
@@ -205,5 +207,122 @@ export class ResearchService {
         `News search failed: ${error instanceof Error ? error.message : String(error)}`
       );
     }
+  }
+
+  /**
+   * Scrape and enrich research results with full content summaries
+   * Used when initial research quality is poor and deeper research is needed
+   * @param researchResult Initial research result with snippets
+   * @param contentGenService Content generation service for summarization
+   * @param numUrls Number of top URLs to scrape (default: 3)
+   * @param targetTokens Target tokens per summary (default: 500)
+   * @returns Enriched research result with detailed summaries
+   */
+  async scrapeAndEnrichResults(
+    researchResult: ResearchResult,
+    contentGenService: ContentGenerationService,
+    numUrls: number = 3,
+    targetTokens: number = 500
+  ): Promise<ResearchResult> {
+    try {
+      console.log(`[Research] Enriching research with ${numUrls} scraped URLs`);
+
+      // Take top N URLs
+      const urlsToScrape = researchResult.results.slice(0, numUrls);
+
+      if (urlsToScrape.length === 0) {
+        console.log('[Research] No URLs to scrape, returning original research');
+        return researchResult;
+      }
+
+      // Scrape and summarize each URL
+      const enrichedResults: SearchResult[] = [];
+
+      for (const result of urlsToScrape) {
+        try {
+          console.log(`[Research] Scraping ${result.url}`);
+
+          // Fetch full page content
+          const response = await axios.get(result.url, {
+            timeout: 10000, // 10 second timeout
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (compatible; ContentCreatorBot/1.0; +https://example.com/bot)',
+            },
+            maxRedirects: 3,
+          });
+
+          // Extract text content (basic HTML stripping)
+          const htmlContent = response.data;
+          const textContent = this.extractTextFromHtml(htmlContent);
+
+          // Summarize using AI
+          const summary = await contentGenService.summarizeWebContent(
+            textContent,
+            result.url,
+            targetTokens
+          );
+
+          // Create enriched result
+          enrichedResults.push({
+            title: result.title,
+            snippet: summary, // Replace snippet with AI summary
+            url: result.url,
+            source: result.source,
+          });
+
+          console.log(`[Research] Successfully enriched ${result.url}`);
+        } catch (error) {
+          console.error(`[Research] Failed to scrape ${result.url}:`, error);
+          // Keep original result if scraping fails
+          enrichedResults.push(result);
+        }
+      }
+
+      // Add remaining results (not scraped) as-is
+      const remainingResults = researchResult.results.slice(numUrls);
+      const finalResults = [...enrichedResults, ...remainingResults];
+
+      console.log(
+        `[Research] Enrichment complete: ${enrichedResults.length} URLs enriched, ${remainingResults.length} kept original`
+      );
+
+      return {
+        query: researchResult.query,
+        results: finalResults,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      console.error('[Research] Enrichment failed:', error);
+      // Return original research if enrichment completely fails
+      return researchResult;
+    }
+  }
+
+  /**
+   * Extract plain text from HTML content
+   * Basic implementation - removes HTML tags and scripts
+   */
+  private extractTextFromHtml(html: string): string {
+    // Remove script and style tags with their content
+    let text = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+    text = text.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+
+    // Remove HTML tags
+    text = text.replace(/<[^>]+>/g, ' ');
+
+    // Decode common HTML entities
+    text = text
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+
+    // Normalize whitespace
+    text = text.replace(/\s+/g, ' ').trim();
+
+    return text;
   }
 }

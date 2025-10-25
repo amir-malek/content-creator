@@ -45,6 +45,20 @@ export interface LogRow {
   created_at: string;
 }
 
+export interface PostIterationRow {
+  id: string;
+  post_id: string;
+  iteration_number: number;
+  content_json: any;
+  quality_score: number;
+  quality_feedback: string;
+  word_count: number;
+  structure_score: number;
+  depth_score: number;
+  engagement_score: number;
+  created_at: string;
+}
+
 /**
  * Insert types (fields required when creating new records)
  */
@@ -75,6 +89,18 @@ export interface LogInsert {
   level: 'info' | 'warning' | 'error' | 'debug';
   message: string;
   metadata?: Record<string, any>;
+}
+
+export interface PostIterationInsert {
+  post_id: string;
+  iteration_number: number;
+  content_json: any;
+  quality_score: number;
+  quality_feedback: string;
+  word_count: number;
+  structure_score: number;
+  depth_score: number;
+  engagement_score: number;
 }
 
 /**
@@ -123,6 +149,11 @@ export interface Database {
         Row: LogRow;
         Insert: LogInsert;
         Update: Partial<LogRow>;
+      };
+      post_iterations: {
+        Row: PostIterationRow;
+        Insert: PostIterationInsert;
+        Update: Partial<PostIterationRow>;
       };
     };
   };

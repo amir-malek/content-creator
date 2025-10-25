@@ -191,3 +191,37 @@ export interface ContentGenerationRequest {
   research?: ResearchResult;
   styleConfig: StyleConfig;
 }
+
+/**
+ * Actionable improvement instruction (Self-Refine methodology)
+ * Provides specific, localized feedback with concrete actions
+ */
+export interface ActionableImprovement {
+  location: string; // e.g., "Paragraph 2", "Introduction", "Section: Quality Metrics"
+  issue: string; // What's wrong (localization)
+  action: string; // Specific instruction to fix it (actionable)
+  source_reference?: string; // Which research source to use (e.g., "Source #3")
+}
+
+/**
+ * Quality rating for content assessment
+ */
+export interface QualityRating {
+  score: number; // Overall quality score from 1-10
+  feedback: string; // Detailed explanation of the rating
+  areas_to_improve: string[]; // General aspects that need improvement (kept for backward compat)
+  actionable_improvements: ActionableImprovement[]; // Specific paragraph-level instructions (Self-Refine)
+  word_count: number; // Actual word count in the content
+  structure_score: number; // Score for content structure (1-10)
+  depth_score: number; // Score for content depth and research quality (1-10)
+  engagement_score: number; // Score for reader engagement (1-10)
+}
+
+/**
+ * Iteration history entry tracking content improvements
+ */
+export interface IterationHistory {
+  iteration_number: number;
+  content: Content;
+  rating: QualityRating;
+}

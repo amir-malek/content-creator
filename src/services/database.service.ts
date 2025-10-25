@@ -6,8 +6,10 @@ import {
   PostUpdate,
   ProjectRow,
   LogInsert,
+  PostIterationInsert,
+  PostIterationRow,
 } from '../types/database.js';
-import { Post, ProjectConfig, Log, Content } from '../types/index.js';
+import { Post, ProjectConfig, Log, Content, IterationHistory } from '../types/index.js';
 
 /**
  * Database service for managing projects, posts, and logs in Supabase
@@ -183,6 +185,89 @@ export class DatabaseService {
   }
 
   // ====================
+  // POST ITERATION OPERATIONS
+  // ====================
+
+  /**
+   * Delete all iterations for a post (used before regenerating content)
+   */
+  async deletePostIterations(postId: string): Promise<void> {
+    const { error } = await this.client
+      .from('post_iterations')
+      .delete()
+      .eq('post_id', postId);
+
+    if (error) {
+      console.error('[Database] Failed to delete post iterations:', error);
+      // Don't throw - this is non-critical
+    }
+  }
+
+  /**
+   * Save a single post iteration with quality rating
+   */
+  async savePostIteration(postId: string, iteration: IterationHistory): Promise<void> {
+    const iterationData: PostIterationInsert = {
+      post_id: postId,
+      iteration_number: iteration.iteration_number,
+      content_json: iteration.content as any,
+      quality_score: iteration.rating.score,
+      quality_feedback: iteration.rating.feedback,
+      word_count: iteration.rating.word_count,
+      structure_score: iteration.rating.structure_score,
+      depth_score: iteration.rating.depth_score,
+      engagement_score: iteration.rating.engagement_score,
+    };
+
+    const { error } = await this.client.from('post_iterations').insert(iterationData);
+
+    if (error) {
+      console.error('[Database] Failed to save post iteration:', error);
+      throw new Error(`Failed to save post iteration: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get all iterations for a post
+   */
+  async getPostIterations(postId: string): Promise<IterationHistory[]> {
+    const { data, error } = await this.client
+      .from('post_iterations')
+      .select('*')
+      .eq('post_id', postId)
+      .order('iteration_number', { ascending: true });
+
+    if (error) throw new Error(`Failed to get post iterations: ${error.message}`);
+
+    return (data || []).map(this.mapIterationRowToHistory);
+  }
+
+  /**
+   * Get iteration statistics for a post
+   */
+  async getIterationStats(postId: string): Promise<{
+    totalIterations: number;
+    initialScore: number;
+    finalScore: number;
+    improvementRate: number;
+  } | null> {
+    const iterations = await this.getPostIterations(postId);
+
+    if (iterations.length === 0) return null;
+
+    const initialScore = iterations[0].rating.score;
+    const finalScore = iterations[iterations.length - 1].rating.score;
+    const improvementRate = ((finalScore - initialScore) / initialScore) * 100;
+
+    return {
+      totalIterations: iterations.length,
+      initialScore,
+      finalScore,
+      improvementRate,
+    };
+  }
+
+  // ====================
   // LOG OPERATIONS
   // ====================
 
@@ -308,6 +393,26 @@ export class DatabaseService {
       message: row.message,
       metadata: row.metadata,
       createdAt: new Date(row.created_at),
+    };
+  }
+
+  /**
+   * Map database iteration row to IterationHistory type
+   */
+  private mapIterationRowToHistory(row: PostIterationRow): IterationHistory {
+    return {
+      iteration_number: row.iteration_number,
+      content: row.content_json as Content,
+      rating: {
+        score: row.quality_score,
+        feedback: row.quality_feedback,
+        areas_to_improve: [], // Not stored separately, embedded in feedback
+        actionable_improvements: [], // Not stored separately, embedded in feedback
+        word_count: row.word_count,
+        structure_score: row.structure_score,
+        depth_score: row.depth_score,
+        engagement_score: row.engagement_score,
+      },
     };
   }
 }
