@@ -83,6 +83,7 @@ export class DatabaseService {
 
   /**
    * Get pending posts that are due for publishing
+   * Smart prioritization: scheduled date first, then retry count (fewer retries = higher priority)
    */
   async getPendingPosts(projectId?: string): Promise<Post[]> {
     let query = this.client
@@ -95,7 +96,10 @@ export class DatabaseService {
       query = query.eq('project_id', projectId);
     }
 
-    const { data, error } = await query.order('publish_date', { ascending: true });
+    // Smart prioritization: scheduled date first (oldest first), then retry count (fresh posts first)
+    const { data, error } = await query
+      .order('publish_date', { ascending: true })
+      .order('retry_count', { ascending: true });
 
     if (error) throw new Error(`Failed to get pending posts: ${error.message}`);
 

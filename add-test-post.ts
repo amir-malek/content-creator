@@ -26,9 +26,9 @@ async function addTestPost() {
     .from('posts')
     .insert({
       project_id: projects.id,
-      title: 'Testing Iterative Content Quality System',
-      field_niche: 'Software Development',
-      keywords: ['testing', 'quality', 'automation'],
+      title: 'The potential role of AI in modern relationships',
+      field_niche: 'Relationships and Technology',
+      keywords: ['AI', 'relationships', 'technology'],
       publish_date: new Date().toISOString().split('T')[0],
       status: 'pending'
     })

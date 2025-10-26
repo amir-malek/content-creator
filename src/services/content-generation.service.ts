@@ -123,10 +123,11 @@ export class ContentGenerationService {
         return { content: currentContent, iterations };
       }
 
-      // Iterations 2-N: Improve until score >= minScore or max iterations reached
+      // Iterations 2-N: Improve until score >= minScore, AI decides to stop, or max iterations reached
       let currentResearch = request.research; // Track research that may be enhanced
+      const MAX_SAFETY_ITERATIONS = 6; // Hard safety limit regardless of AI decisions
 
-      for (let i = 2; i <= maxIterations; i++) {
+      for (let i = 2; i <= Math.min(maxIterations, MAX_SAFETY_ITERATIONS); i++) {
         console.log(`\n[Content Generation] === Iteration ${i}: Improvement ===`);
         console.log(
           `[Content Generation] Current score: ${currentRating.score}/10 (target: ${minScore}+)`
@@ -147,6 +148,7 @@ export class ContentGenerationService {
         );
 
         // Rate the improved content
+        const previousRating = currentRating;
         currentRating = await this.rateContent(
           currentContent,
           request.styleConfig,
@@ -174,8 +176,29 @@ export class ContentGenerationService {
           break;
         }
 
+        // AI decides whether to continue iterating (agentic decision)
+        console.log('[Content Generation] Asking AI whether to continue iterating...');
+        const decision = await this.decideContinueIteration(
+          currentRating,
+          previousRating,
+          i,
+          maxIterations,
+          minScore
+        );
+
+        if (!decision.shouldContinue) {
+          console.log(
+            `[Content Generation] AI decided to STOP at iteration ${i} - ${decision.reasoning}`
+          );
+          break;
+        }
+
+        console.log(
+          `[Content Generation] AI decided to CONTINUE - ${decision.reasoning}`
+        );
+
         // If this was the last iteration
-        if (i === maxIterations) {
+        if (i === Math.min(maxIterations, MAX_SAFETY_ITERATIONS)) {
           console.log(
             `[Content Generation] Reached max iterations (${maxIterations}) with score ${currentRating.score}/10`
           );
@@ -207,53 +230,66 @@ export class ContentGenerationService {
    * @param content Full web page content
    * @param url Source URL for reference
    * @param targetTokens Target summary size (400-600 recommended)
+   * @param blogTopic Optional topic context for more focused extraction
    * @returns Concise summary of key facts and insights
    */
-  async summarizeWebContent(content: string, url: string, targetTokens: number = 500): Promise<string> {
+  async summarizeWebContent(
+    content: string,
+    url: string,
+    targetTokens: number = 500,
+    blogTopic?: string
+  ): Promise<string> {
     try {
       console.log(`[Content Generation] Summarizing content from ${url}`);
 
+      const topicContext = blogTopic
+        ? `\n**Blog Topic Context:** You are extracting information for a blog post about "${blogTopic}". Focus on facts, statistics, examples, and insights DIRECTLY relevant to this topic.\n`
+        : '';
+
       const prompt = `
 Extract key facts, statistics, examples, and insights from this web article.
-Focus on information that would be valuable for creating high-quality blog content.
-
+Focus on information that would be valuable for creating high-quality blog content.${topicContext}
 Source URL: ${url}
 
 Content:
 ${content.slice(0, 12000)} ${content.length > 12000 ? '...[truncated]' : ''}
 
 Instructions:
-- Extract specific facts, numbers, and statistics
-- Include expert quotes or notable opinions
-- Identify key insights and takeaways
-- Note any examples or case studies
+- Extract ONLY information relevant to the blog topic${blogTopic ? ` (${blogTopic})` : ''}
+- Prioritize specific facts, numbers, and statistics with exact figures
+- Include expert quotes or notable opinions with attribution
+- Identify key insights, trends, and takeaways
+- Note any case studies, real-world examples, or company names
 - Keep the summary to approximately ${targetTokens} tokens
 - Structure as bullet points for easy reference
-- Always attribute information to the source URL
+- Always cite the source URL
 
 Format:
 **Key Facts:**
-- [fact 1]
-- [fact 2]
+- [specific fact with numbers/dates]
 
 **Statistics & Data:**
-- [stat 1]
-- [stat 2]
+- [stat with exact figures and context]
 
-**Insights & Takeaways:**
-- [insight 1]
-- [insight 2]
+**Case Studies & Examples:**
+- [real-world example or company case]
+
+**Expert Insights:**
+- [quote or opinion with attribution]
 
 **Source:** ${url}
       `.trim();
+
+      const systemPrompt = blogTopic
+        ? `You are a research assistant extracting information for a blog post about "${blogTopic}". Extract ONLY facts, statistics, examples, and insights directly relevant to this topic. Ignore generic or tangential content. Focus on concrete, citable information that will make the blog post authoritative and well-researched.`
+        : 'You are a research assistant who extracts key information from web content for blog research.';
 
       const response = await this.client.chat.completions.create({
         model: 'gpt-4o-mini', // Hardcoded for cost efficiency (~$0.005 per URL)
         messages: [
           {
             role: 'system',
-            content:
-              'You are a research assistant who extracts key information from web content for blog research.',
+            content: systemPrompt,
           },
           { role: 'user', content: prompt },
         ],
@@ -273,6 +309,121 @@ Format:
       console.error(`[Content Generation] Failed to summarize ${url}:`, error);
       // Return a fallback message instead of throwing - allows partial success
       return `[Failed to extract content from ${url}]`;
+    }
+  }
+
+  /**
+   * Select the best content angle based on research findings
+   * AI analyzes available information and chooses the most effective perspective
+   * @param title Blog post title
+   * @param research Research results
+   * @returns Selected angle with reasoning
+   */
+  async selectContentAngle(
+    title: string,
+    research: ResearchResult
+  ): Promise<{ angle: string; reasoning: string; focusAreas: string[] }> {
+    try {
+      console.log('[Content Generation] AI selecting content angle...');
+
+      // Analyze research for patterns
+      const hasStatistics = research.results.filter((r) =>
+        /\d+%|\d+\s*(percent|million|billion|thousand)/i.test(r.snippet)
+      ).length;
+      const hasCaseStudies = research.results.filter((r) =>
+        /company|organization|example|case study/i.test(r.snippet)
+      ).length;
+      const hasTrends = research.results.filter((r) =>
+        /trend|future|growth|forecast|prediction/i.test(r.snippet)
+      ).length;
+      const hasHowTo = research.results.filter((r) =>
+        /how to|guide|step|tutorial|implement/i.test(r.snippet)
+      ).length;
+
+      const prompt = `
+You are a content strategist selecting the best angle/perspective for a blog post based on available research.
+
+**Blog Title:** ${title}
+
+**Research Analysis:**
+- Total sources: ${research.results.length}
+- Sources with statistics: ${hasStatistics}
+- Sources with case studies/examples: ${hasCaseStudies}
+- Sources about trends/future: ${hasTrends}
+- How-to/guide sources: ${hasHowTo}
+
+**Top Research Results:**
+${research.results
+  .slice(0, 8)
+  .map(
+    (r, i) => `
+${i + 1}. ${r.title} (${r.source})
+   ${r.snippet.slice(0, 200)}${r.snippet.length > 200 ? '...' : ''}
+`
+  )
+  .join('')}
+
+**Available Content Angles:**
+1. **Data-Driven**: Focus on statistics, numbers, and quantitative evidence (best when: lots of statistics)
+2. **Case Study/Example-Based**: Focus on real company examples and success stories (best when: strong case studies)
+3. **Trend Analysis**: Focus on emerging trends and future predictions (best when: trend sources available)
+4. **How-To/Practical Guide**: Focus on actionable steps and implementation (best when: procedural information)
+5. **Balanced Overview**: Mix multiple perspectives (best when: diverse research but no dominant theme)
+
+**Your Task:**
+Choose the SINGLE best angle based on the research strength. Consider:
+- What information do we have the MOST of?
+- What would make the most authoritative, compelling post?
+- What matches the blog title intent?
+
+Respond in JSON:
+{
+  "angle": "Data-Driven" (or one of the other angles),
+  "reasoning": "Why this angle is best (1 sentence)",
+  "focusAreas": ["specific aspect 1", "specific aspect 2", "specific aspect 3"]
+}
+
+Example focusAreas for "Data-Driven": ["productivity statistics", "ROI measurements", "adoption rates"]
+      `.trim();
+
+      const response = await this.client.chat.completions.create({
+        model: 'gpt-4o-mini', // Use mini for cost efficiency (~$0.005 per call)
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a content strategist who selects the best angle for blog posts based on available research. Choose angles that maximize the impact of available information. Respond only with valid JSON.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.3, // Low temperature for consistent strategic decisions
+        max_tokens: 250,
+      });
+
+      let angleText = response.choices[0]?.message?.content || '{}';
+
+      // Strip markdown code blocks if present
+      angleText = angleText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+
+      const selection = JSON.parse(angleText);
+
+      console.log(`[Content Generation] ✓ Selected angle: ${selection.angle}`);
+      console.log(`[Content Generation] Reasoning: ${selection.reasoning}`);
+      console.log(`[Content Generation] Focus areas: ${selection.focusAreas?.join(', ')}`);
+
+      return {
+        angle: selection.angle || 'Balanced Overview',
+        reasoning: selection.reasoning || 'Default angle selected',
+        focusAreas: selection.focusAreas || [],
+      };
+    } catch (error) {
+      console.error('[Content Generation] Angle selection failed:', error);
+      // Fallback to balanced approach
+      return {
+        angle: 'Balanced Overview',
+        reasoning: 'Selection failed, using default balanced approach',
+        focusAreas: [],
+      };
     }
   }
 
@@ -336,26 +487,258 @@ Be factual and cite sources where possible.
   }
 
   /**
-   * Assess if more research is needed (agentic decision)
+   * Decide whether to continue iterating based on current quality and improvement rate
+   * Uses AI to make intelligent decisions about diminishing returns
+   * @param currentRating Current quality rating
+   * @param previousRating Previous quality rating (for comparison)
+   * @param iterationNumber Current iteration number
+   * @param maxIterations Maximum allowed iterations
+   * @param targetScore Target quality score
+   * @returns Decision to continue and reasoning
+   */
+  async decideContinueIteration(
+    currentRating: QualityRating,
+    previousRating: QualityRating | null,
+    iterationNumber: number,
+    maxIterations: number,
+    targetScore: number
+  ): Promise<{ shouldContinue: boolean; reasoning: string }> {
+    try {
+      // Calculate improvement rate if we have previous rating
+      const improvementRate = previousRating
+        ? currentRating.score - previousRating.score
+        : null;
+
+      const prompt = `
+You are a content quality optimizer deciding whether to continue improving a blog post.
+
+**Current Situation:**
+- Iteration: ${iterationNumber}/${maxIterations}
+- Current Score: ${currentRating.score}/10
+${previousRating ? `- Previous Score: ${previousRating.score}/10` : ''}
+${improvementRate !== null ? `- Improvement: ${improvementRate > 0 ? '+' : ''}${improvementRate.toFixed(1)} points` : ''}
+- Target Score: ${targetScore}/10
+- Word Count: ${currentRating.word_count}
+
+**Current Feedback:**
+${currentRating.feedback}
+
+**Areas to Improve:**
+${currentRating.areas_to_improve.join(', ') || 'None'}
+
+**Your Task:**
+Decide if another iteration would be valuable. Consider:
+1. Is the improvement rate positive? (if no improvement last iteration, likely diminishing returns)
+2. Is the score close to target? (within 0.5 points = good enough)
+3. Are remaining issues fixable with one more iteration?
+4. Have we hit max iterations?
+
+Respond in JSON:
+{
+  "shouldContinue": true/false,
+  "reasoning": "Brief explanation (1 sentence)"
+}
+      `.trim();
+
+      const response = await this.client.chat.completions.create({
+        model: 'gpt-4o-mini', // Use mini for cost efficiency (~$0.002 per decision)
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a content optimizer making smart decisions about when to stop iterating. Balance quality with efficiency. Respond only with valid JSON.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2, // Low temperature for consistent decisions
+        max_tokens: 150,
+      });
+
+      let decisionText = response.choices[0]?.message?.content || '{}';
+
+      // Strip markdown code blocks if present
+      decisionText = decisionText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+
+      const decision = JSON.parse(decisionText);
+
+      console.log(
+        `[Content Generation] AI Decision: ${decision.shouldContinue ? 'CONTINUE' : 'STOP'} - ${decision.reasoning}`
+      );
+
+      return {
+        shouldContinue: decision.shouldContinue !== false,
+        reasoning: decision.reasoning || 'No reasoning provided',
+      };
+    } catch (error) {
+      console.warn(
+        '[Content Generation] Iteration decision failed, defaulting to continue:',
+        error
+      );
+      // Default to continuing if decision fails (safer than stopping prematurely)
+      return {
+        shouldContinue: iterationNumber < maxIterations,
+        reasoning: 'Decision service failed, using default behavior',
+      };
+    }
+  }
+
+  /**
+   * Plan research strategy - AI decides what queries to execute and in what order
+   * Agentic research planning replaces template-based approach
+   * @param title Blog post title
+   * @param fieldNiche Optional niche/field context
+   * @param keywords Optional keywords
+   * @returns Ordered list of 2-4 research queries with reasoning
+   */
+  async planResearchStrategy(
+    title: string,
+    fieldNiche?: string,
+    keywords?: string[]
+  ): Promise<{ queries: string[]; strategy: string }> {
+    try {
+      console.log('[Content Generation] AI planning research strategy...');
+
+      const currentYear = new Date().getFullYear();
+
+      const prompt = `
+You are a research strategist planning web searches for an authoritative blog post.
+
+**Blog Post Details:**
+- Title: ${title}
+- Niche: ${fieldNiche || 'General'}
+- Keywords: ${keywords?.join(', ') || 'None provided'}
+- Current Year: ${currentYear}
+
+**Your Task:**
+Plan 2-4 targeted search queries that will gather comprehensive, high-quality information for this blog post.
+
+**Strategy Guidelines:**
+1. **Query Order Matters**:
+   - Start broad (overview/trends) → then specific (statistics/examples)
+   - OR start with facts/data → then case studies/applications
+2. **Each Query Must Be Distinct**: Don't overlap - each should target different information
+3. **Include Year for Recency**: Add "${currentYear}" to at least 2 queries
+4. **Be Specific**: "software testing benefits statistics 2025" NOT just "software testing"
+5. **Target Authority**: Queries should surface reputable sources (studies, reports, expert analysis)
+
+**Examples of Good Query Plans:**
+- Blog: "Why Remote Work Is Here to Stay"
+  Queries: ["remote work productivity statistics 2025", "remote work trends future predictions", "successful remote work company case studies"]
+
+- Blog: "The Rise of AI in Healthcare"
+  Queries: ["AI healthcare statistics 2025", "AI medical diagnosis accuracy studies", "hospitals using AI real examples"]
+
+Respond in JSON:
+{
+  "queries": ["query 1", "query 2", "query 3"],
+  "strategy": "Brief explanation of your research approach (1 sentence)"
+}
+      `.trim();
+
+      const response = await this.client.chat.completions.create({
+        model: 'gpt-4o-mini', // Use mini for cost efficiency (~$0.005 per call)
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a research strategist who plans effective web search queries. Create targeted, specific queries that will gather authoritative information. Respond only with valid JSON.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.4, // Some creativity but mostly focused
+        max_tokens: 300,
+      });
+
+      let planText = response.choices[0]?.message?.content || '{}';
+
+      // Strip markdown code blocks if present
+      planText = planText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+
+      const plan = JSON.parse(planText);
+
+      const queries = plan.queries || [];
+
+      if (queries.length === 0) {
+        // Fallback to template-based if AI fails
+        console.warn('[Content Generation] AI planning failed, using fallback');
+        return {
+          queries: [`${title} ${currentYear}`],
+          strategy: 'Fallback to simple query',
+        };
+      }
+
+      console.log(`[Content Generation] Research plan: ${queries.length} queries`);
+      console.log(`[Content Generation] Strategy: ${plan.strategy}`);
+
+      return {
+        queries,
+        strategy: plan.strategy || 'No strategy provided',
+      };
+    } catch (error) {
+      console.error('[Content Generation] Research planning failed:', error);
+      // Fallback to template-based approach
+      const currentYear = new Date().getFullYear();
+      return {
+        queries: [`${title} ${fieldNiche || ''} ${currentYear}`.trim()],
+        strategy: 'Fallback due to planning error',
+      };
+    }
+  }
+
+  /**
+   * Assess if more research is needed (agentic decision with confidence scoring)
+   * Stricter criteria and confidence-based decisions for better quality control
    */
   async assessResearchQuality(
     title: string,
     research: ResearchResult
-  ): Promise<{ needsMore: boolean; suggestion?: string }> {
+  ): Promise<{ needsMore: boolean; confidence: number; suggestion?: string }> {
     try {
+      // Analyze snippets for depth indicators
+      const hasStatistics = research.results.some((r) =>
+        /\d+%|\d+\s*(percent|million|billion|thousand)/i.test(r.snippet)
+      );
+      const hasDates = research.results.some((r) => /202[3-5]|2025/i.test(r.snippet));
+      const avgSnippetLength =
+        research.results.reduce((sum, r) => sum + r.snippet.length, 0) / research.results.length;
+
       const prompt = `
-Assess the quality and completeness of this research for writing a blog post.
+You are a STRICT research quality assessor. Evaluate if this research is sufficient for an authoritative 1000-1500 word blog post.
 
-Title: ${title}
-Number of sources: ${research.results.length}
+**Blog Title:** ${title}
+**Number of sources:** ${research.results.length}
+**Has statistics:** ${hasStatistics ? 'Yes' : 'No'}
+**Has recent dates (2023-2025):** ${hasDates ? 'Yes' : 'No'}
+**Avg snippet length:** ${avgSnippetLength.toFixed(0)} characters
 
-Results summary:
-${research.results.map((r) => `- ${r.title} (${r.source})`).join('\n')}
+**Sources:**
+${research.results
+  .map(
+    (r, i) => `
+${i + 1}. ${r.title} (${r.source})
+   Snippet: ${r.snippet.slice(0, 150)}${r.snippet.length > 150 ? '...' : ''}
+`
+  )
+  .join('')}
 
-Answer in JSON format:
+**Evaluation Criteria (be STRICT):**
+1. **Quantity**: 7+ sources with good variety? (20% weight)
+2. **Depth**: Snippets have specific facts, numbers, examples? Not just generic statements? (30% weight)
+3. **Recency**: Recent dates (2023-2025) present? (20% weight)
+4. **Diversity**: Multiple perspectives/sources, not all the same angle? (15% weight)
+5. **Authority**: Reputable sources (not just blogs)? (15% weight)
+
+**Confidence Score:**
+- 80-100%: Excellent research, sufficient for authoritative content
+- 60-79%: Good but could benefit from deep research (scraping)
+- 0-59%: Insufficient, deep research REQUIRED
+
+Respond in JSON:
 {
   "needsMore": true/false,
-  "suggestion": "what additional research would help (if needsMore is true)"
+  "confidence": 75,
+  "reasoning": "Brief explanation of score",
+  "suggestion": "What specific information is missing (if needsMore=true)"
 }
       `.trim();
 
@@ -365,12 +748,12 @@ Answer in JSON format:
           {
             role: 'system',
             content:
-              'You are a content strategist assessing research quality. Respond only with valid JSON.',
+              'You are a STRICT content strategist who ensures research quality. Be critical - only give high confidence if research is truly comprehensive. Respond only with valid JSON.',
           },
           { role: 'user', content: prompt },
         ],
         temperature: 0.3,
-        max_tokens: 200,
+        max_tokens: 250,
       });
 
       let assessmentText = response.choices[0]?.message?.content || '{}';
@@ -380,13 +763,20 @@ Answer in JSON format:
 
       const result = JSON.parse(assessmentText);
 
+      const confidence = result.confidence || 50;
+
+      console.log(
+        `[Content Generation] Research confidence: ${confidence}% - ${result.reasoning || 'No reasoning provided'}`
+      );
+
       return {
-        needsMore: result.needsMore || false,
+        needsMore: result.needsMore !== false,
+        confidence,
         suggestion: result.suggestion,
       };
     } catch (error) {
       console.warn('[Content Generation] Research quality assessment failed, assuming OK');
-      return { needsMore: false };
+      return { needsMore: false, confidence: 70 };
     }
   }
 
@@ -699,10 +1089,10 @@ Always cite sources when using specific facts or statistics.
   }
 
   /**
-   * Build user prompt with title and research
+   * Build user prompt with title, research, and AI-selected content angle
    */
   private buildUserPrompt(request: ContentGenerationRequest): string {
-    const { title, fieldNiche, keywords, research } = request;
+    const { title, fieldNiche, keywords, research, contentAngle } = request;
 
     let prompt = `Write a comprehensive blog post with the following details:\n\n`;
     prompt += `Title: ${title}\n`;
@@ -715,6 +1105,35 @@ Always cite sources when using specific facts or statistics.
       prompt += `Keywords to include: ${keywords.join(', ')}\n`;
     }
 
+    // Add content angle guidance (agentic)
+    if (contentAngle) {
+      prompt += `\n📐 CONTENT ANGLE: ${contentAngle.angle}\n`;
+      prompt += `Why this angle: ${contentAngle.reasoning}\n`;
+      if (contentAngle.focusAreas.length > 0) {
+        prompt += `Focus on these aspects: ${contentAngle.focusAreas.join(', ')}\n`;
+      }
+      prompt += `\n⚠️ IMPORTANT: Structure your entire post around this "${contentAngle.angle}" angle. `;
+
+      // Add angle-specific instructions
+      switch (contentAngle.angle) {
+        case 'Data-Driven':
+          prompt += 'Lead with statistics, emphasize numbers and quantitative evidence throughout.';
+          break;
+        case 'Case Study/Example-Based':
+          prompt += 'Lead with real examples, feature specific companies and success stories.';
+          break;
+        case 'Trend Analysis':
+          prompt += 'Lead with emerging trends, emphasize future predictions and market shifts.';
+          break;
+        case 'How-To/Practical Guide':
+          prompt += 'Lead with actionable steps, provide clear implementation guidance.';
+          break;
+        default:
+          prompt += 'Balance multiple perspectives while maintaining depth.';
+      }
+      prompt += '\n';
+    }
+
     if (research && research.results.length > 0) {
       prompt += `\nResearch findings:\n`;
       research.results.forEach((r, i) => {
@@ -723,9 +1142,9 @@ Always cite sources when using specific facts or statistics.
     }
 
     prompt += `\n\nGenerate a well-structured blog post in markdown format. Include:
-1. An engaging introduction that hooks the reader
+1. An engaging introduction that hooks the reader${contentAngle ? ` (aligned with ${contentAngle.angle} angle)` : ''}
 2. Multiple body sections with descriptive subheadings
-3. Insights and analysis based on the research
+3. Insights and analysis based on the research${contentAngle && contentAngle.focusAreas.length > 0 ? ` (focusing on: ${contentAngle.focusAreas.join(', ')})` : ''}
 4. Practical takeaways or actionable advice where relevant
 5. A strong conclusion
 

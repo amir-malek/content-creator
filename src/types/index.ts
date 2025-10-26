@@ -190,6 +190,11 @@ export interface ContentGenerationRequest {
   keywords?: string[];
   research?: ResearchResult;
   styleConfig: StyleConfig;
+  contentAngle?: {
+    angle: string;
+    reasoning: string;
+    focusAreas: string[];
+  };
 }
 
 /**

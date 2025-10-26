@@ -51,8 +51,16 @@ export class WorkflowService {
       console.log('\n[Workflow] Step 2: Assessing research quality...');
       const assessment = await this.contentService.assessResearchQuality(post.title, research);
 
-      if (assessment.needsMore && this.maxResearchIterations > 1) {
-        console.log('[Workflow] More research needed:', assessment.suggestion);
+      // Get confidence threshold from env (default: 70%)
+      const confidenceThreshold = parseInt(process.env.RESEARCH_CONFIDENCE_THRESHOLD || '70');
+
+      console.log(
+        `[Workflow] Research confidence: ${assessment.confidence}% (threshold: ${confidenceThreshold}%)`
+      );
+
+      if (assessment.confidence < confidenceThreshold && this.maxResearchIterations > 1) {
+        console.log('[Workflow] ⚠️  Research confidence below threshold');
+        console.log('[Workflow] Reason:', assessment.suggestion || 'Quality insufficient');
         console.log('[Workflow] 🔍 Activating DEEP RESEARCH mode (scraping + AI summarization)...');
 
         // Get configuration from env
@@ -70,12 +78,18 @@ export class WorkflowService {
         console.log(`[Workflow] Deep research complete - enriched top ${numUrls} sources`);
         console.log(`[Workflow] Total sources: ${research.results.length}`);
       } else {
-        console.log('[Workflow] Research quality is sufficient');
+        console.log('[Workflow] ✓ Research confidence sufficient for content generation');
       }
 
       // Step 3: Synthesize research findings
       console.log('\n[Workflow] Step 3: Synthesizing research findings...');
       await this.contentService.synthesizeResearch(research);
+
+      // Step 3.5: Select content angle (agentic decision)
+      console.log('\n[Workflow] Step 3.5: Selecting content angle...');
+      const contentAngle = await this.contentService.selectContentAngle(post.title, research);
+      console.log(`[Workflow] 🎯 Content Angle: ${contentAngle.angle}`);
+      console.log(`[Workflow] Focus: ${contentAngle.focusAreas.join(', ')}`);
 
       // Step 4: Generate content iteratively with quality improvements
       console.log('\n[Workflow] Step 4: Generating blog post content iteratively...');
@@ -89,6 +103,7 @@ export class WorkflowService {
           keywords: post.keywords,
           research,
           styleConfig,
+          contentAngle, // Pass the AI-selected angle
         },
         maxIterations,
         minQualityScore,
@@ -108,23 +123,59 @@ export class WorkflowService {
   }
 
   /**
-   * Perform comprehensive research for a post
+   * Perform comprehensive research for a post using AI-planned strategy
+   * AI decides what queries to run and in what order (agentic research)
    */
   private async performResearch(post: Post): Promise<ResearchResult> {
     const { title, fieldNiche, keywords } = post;
 
     try {
-      // Main search
-      const research = await this.researchService.search(title, fieldNiche, keywords, 10);
+      // Step 1: AI plans research strategy (2-4 targeted queries)
+      const researchPlan = await this.contentService.planResearchStrategy(
+        title,
+        fieldNiche,
+        keywords
+      );
 
-      // If we got very few results, try a news search as backup
-      if (research.results.length < 3 && fieldNiche) {
-        console.log('[Workflow] Few results found, searching news...');
-        const newsResearch = await this.researchService.searchNews(fieldNiche, 5);
-        return this.mergeResearch(research, newsResearch);
+      console.log(`[Workflow] 📋 Research Strategy: ${researchPlan.strategy}`);
+      console.log(
+        `[Workflow] 🔍 Planned Queries: ${researchPlan.queries.map((q, i) => `\n   ${i + 1}. "${q}"`).join('')}`
+      );
+
+      // Step 2: Execute each planned query sequentially
+      const allResults: ResearchResult[] = [];
+
+      for (let i = 0; i < researchPlan.queries.length; i++) {
+        const query = researchPlan.queries[i];
+        console.log(`[Workflow] Executing query ${i + 1}/${researchPlan.queries.length}: "${query}"`);
+
+        try {
+          // Use the research service's search method directly with the AI-planned query
+          const result = await this.researchService.search(query, undefined, undefined, 7);
+          allResults.push(result);
+
+          console.log(`[Workflow] ✓ Query ${i + 1} returned ${result.results.length} results`);
+        } catch (error) {
+          console.warn(`[Workflow] ⚠️  Query ${i + 1} failed:`, error);
+          // Continue with other queries even if one fails
+        }
       }
 
-      return research;
+      // Step 3: Merge all research results
+      if (allResults.length === 0) {
+        throw new Error('All research queries failed');
+      }
+
+      let mergedResearch = allResults[0];
+      for (let i = 1; i < allResults.length; i++) {
+        mergedResearch = this.mergeResearch(mergedResearch, allResults[i]);
+      }
+
+      console.log(
+        `[Workflow] ✓ Research complete: ${mergedResearch.results.length} total results from ${researchPlan.queries.length} queries`
+      );
+
+      return mergedResearch;
     } catch (error) {
       console.error('[Workflow] Research failed:', error);
       throw error;

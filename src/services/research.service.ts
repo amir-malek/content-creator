@@ -21,7 +21,7 @@ export class ResearchService {
 
   /**
    * Search for information related to the post title and keywords
-   * @param title Post title
+   * @param title Post title (or raw query if fieldNiche and keywords are undefined)
    * @param fieldNiche Topic area or niche
    * @param keywords Additional keywords for search
    * @param numResults Number of results to return (default: 10)
@@ -34,8 +34,11 @@ export class ResearchService {
     numResults: number = 10
   ): Promise<ResearchResult> {
     try {
-      // Build search query
-      const query = this.buildSearchQuery(title, fieldNiche, keywords);
+      // If fieldNiche and keywords are undefined, treat title as a raw query (AI-planned)
+      const query =
+        fieldNiche === undefined && keywords === undefined
+          ? title
+          : this.buildSearchQuery(title, fieldNiche, keywords);
 
       console.log(`[Research] Searching for: ${query}`);
 
@@ -256,11 +259,12 @@ export class ResearchService {
           const htmlContent = response.data;
           const textContent = this.extractTextFromHtml(htmlContent);
 
-          // Summarize using AI
+          // Summarize using AI with blog topic context for focused extraction
           const summary = await contentGenService.summarizeWebContent(
             textContent,
             result.url,
-            targetTokens
+            targetTokens,
+            researchResult.query // Pass the search query as blog topic context
           );
 
           // Create enriched result
