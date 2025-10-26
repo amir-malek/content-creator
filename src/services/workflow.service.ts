@@ -28,6 +28,7 @@ export class WorkflowService {
    * Generate complete content for a post with agentic research workflow
    * @param post Post information from database
    * @param styleConfig Style configuration from project
+   * @param language ISO 639-1 language code (e.g., 'en', 'es', 'ja')
    * @param maxIterations Maximum content improvement iterations (default: 4)
    * @param minQualityScore Minimum quality score to accept (default: 8)
    * @returns Complete content ready for publishing and iteration history
@@ -35,11 +36,13 @@ export class WorkflowService {
   async generatePostContent(
     post: Post,
     styleConfig: StyleConfig,
+    language: string = 'en',
     maxIterations: number = parseInt(process.env.MAX_CONTENT_ITERATIONS || '4'),
     minQualityScore: number = parseInt(process.env.MIN_QUALITY_SCORE || '8')
   ): Promise<{ content: Content; iterations: IterationHistory[] }> {
     try {
       console.log(`\n[Workflow] Starting content generation for: ${post.title}`);
+      console.log(`[Workflow] Language: ${language.toUpperCase()}`);
       console.log(`[Workflow] Niche: ${post.fieldNiche || 'General'}`);
       console.log(`[Workflow] Keywords: ${post.keywords?.join(', ') || 'None'}`);
 
@@ -108,7 +111,8 @@ export class WorkflowService {
         maxIterations,
         minQualityScore,
         minWordCount,
-        targetWordCount
+        targetWordCount,
+        language // Pass language for multilingual content generation
       );
 
       console.log('[Workflow] Content generation complete\n');

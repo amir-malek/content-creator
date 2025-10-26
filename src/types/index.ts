@@ -28,6 +28,26 @@ export interface ContentMetadata {
   categories?: string[];
   publishDate: Date;
   customFields?: Record<string, any>;
+  language?: string; // ISO 639-1 code (en, es, ja, etc.)
+  seoMetadata?: SEOMetadata;
+}
+
+/**
+ * SEO metadata for multilingual content
+ */
+export interface SEOMetadata {
+  localizedKeywords: string[]; // Keywords in target language
+  metaDescription: string; // 150-160 chars in target language
+  ogLocale: string; // e.g., "es_ES", "ja_JP", "en_US"
+  hrefLangAlternates?: HrefLangAlternate[];
+}
+
+/**
+ * Alternate language versions for hreflang tags
+ */
+export interface HrefLangAlternate {
+  language: string; // ISO 639-1 code
+  url: string; // URL of the alternate version
 }
 
 /**
@@ -42,6 +62,22 @@ export interface ProjectConfig {
   parameters: Record<string, any>; // Platform-specific parameters
   styleConfig: StyleConfig;
   isActive: boolean;
+  language?: string; // ISO 639-1 code (en, es, fr, ja, ar, etc.)
+  languageConfig?: LanguageConfig;
+}
+
+/**
+ * Language-specific configuration for content generation
+ */
+export interface LanguageConfig {
+  regionalVariant?: string; // e.g., "es-MX" (Mexican Spanish), "zh-CN" (Simplified Chinese)
+  scriptDirection?: 'ltr' | 'rtl'; // Left-to-right or right-to-left (for Arabic, Hebrew)
+  culturalContext?: string; // e.g., "Latin American", "Middle Eastern", "East Asian"
+  seoStrategy?: {
+    localizedKeywords: boolean; // Generate keywords in target language
+    hrefLangTags: boolean; // Generate hreflang alternate tags
+    metaDescriptionLanguage: string; // Language for meta description
+  };
 }
 
 /**
@@ -52,6 +88,8 @@ export interface StyleConfig {
   length?: 'short' | 'medium' | 'long';
   includeImages?: boolean;
   customInstructions?: string;
+  languageInstructions?: string; // e.g., "Use formal Spanish", "Include honorifics for Japanese"
+  culturalConsiderations?: string; // e.g., "Avoid idioms", "Use metric system", "Reference local examples"
 }
 
 /**

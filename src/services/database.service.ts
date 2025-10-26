@@ -359,6 +359,8 @@ export class DatabaseService {
       parameters: row.parameters,
       styleConfig: row.style_config,
       isActive: row.is_active,
+      language: row.language || 'en', // Default to English if not specified
+      languageConfig: row.language_config,
     };
   }
 

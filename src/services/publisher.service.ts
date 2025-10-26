@@ -103,7 +103,8 @@ export class PublisherService {
       console.log('   → Generating content iteratively...');
       const { content, iterations } = await this.workflow.generatePostContent(
         post,
-        project.styleConfig
+        project.styleConfig,
+        project.language || 'en' // Pass project language for multilingual content generation
       );
 
       // Log iteration results

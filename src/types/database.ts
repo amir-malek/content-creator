@@ -13,6 +13,8 @@ export interface ProjectRow {
   parameters: Record<string, any>;
   style_config: Record<string, any>;
   is_active: boolean;
+  language: string; // ISO 639-1 code (en, es, ja, etc.)
+  language_config: Record<string, any>; // LanguageConfig as JSON
   created_at: string;
   updated_at: string;
 }
@@ -30,6 +32,7 @@ export interface PostRow {
   max_retries: number;
   published_url?: string;
   error_message?: string;
+  language?: string; // ISO 639-1 code, inherited from project
   created_at: string;
   updated_at: string;
   published_at?: string;

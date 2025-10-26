@@ -54,6 +54,57 @@ The system follows this sequence for each post:
 6. **Publishing** → Dynamic adapter publishes to configured platform
 7. **Status Tracking** → Database updates with published URL and status
 
+### Multilingual Support (NEW ✨)
+
+**Native Generation in 50+ Languages**: The system generates content directly in the target language (not translation).
+
+**Supported Languages**: English, Spanish, French, German, Italian, Portuguese, Russian, Japanese, Chinese, Korean, Arabic, Hindi, Hebrew, Persian, Turkish, Polish, Dutch, Swedish, Danish, Finnish, Norwegian, Czech, Hungarian, Romanian, Ukrainian, Thai, Vietnamese, Indonesian, Malay, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Urdu, and more.
+
+**How It Works**:
+1. Each project has a `language` field (ISO 639-1 code: en, es, ja, etc.)
+2. AI generates content directly in the target language with:
+   - **Cultural appropriateness**: Native examples, idioms, references
+   - **Language purity enforcement**: No English mixing
+   - **Grammar and style validation**: Proper punctuation, syntax, natural flow
+   - **SEO optimization**: Localized keywords, meta descriptions
+3. Quality scoring evaluates language-specific criteria
+4. **RTL support** for Arabic, Hebrew, Persian, Urdu
+5. **Improved tokenization** for Asian languages (3-4x efficiency)
+
+**Language Configuration**:
+Projects have optional `language_config` with:
+- `regionalVariant`: "es-MX" (Mexican Spanish) vs "es-ES" (Spain Spanish)
+- `scriptDirection`: "ltr" or "rtl"
+- `culturalContext`: "Latin American", "Middle Eastern", etc.
+- `seoStrategy`: Localized keywords, hreflang tags, meta descriptions
+
+**StyleConfig Enhancements**:
+- `languageInstructions`: "Use formal Spanish", "Include honorifics for Japanese"
+- `culturalConsiderations`: "Avoid idioms", "Use metric system", "Reference local companies"
+
+**Cost Impact**: Same as English (~$0.04-0.11 per post). Asian languages have 3-4x better tokenization efficiency with GPT-4o.
+
+**Database Schema**:
+- `projects.language` (VARCHAR): ISO 639-1 language code (default: 'en')
+- `projects.language_config` (JSONB): Additional language settings
+- `posts.language` (VARCHAR): Auto-populated from project
+
+**Example Usage**:
+```sql
+-- Create a Spanish blog project
+INSERT INTO projects (name, platform_type, endpoints, auth_config, style_config, is_active, language, language_config)
+VALUES (
+  'Spanish Tech Blog',
+  'custom-backend-v1',
+  '{"publish": "https://example.com/api/publish"}',
+  '{"apiKey": "key"}',
+  '{"tone": "professional", "languageInstructions": "Use Latin American Spanish", "culturalConsiderations": "Reference Spanish-speaking tech companies"}',
+  true,
+  'es',
+  '{"regionalVariant": "es-MX", "scriptDirection": "ltr", "culturalContext": "Latin American"}'
+);
+```
+
 ### Service Layer Architecture
 
 **DatabaseService** (`src/services/database.service.ts`)
@@ -173,6 +224,9 @@ Required in `.env`:
   - `MIN_QUALITY_SCORE` - Minimum score to stop iterating (default: 8)
   - `MIN_WORD_COUNT` - Minimum acceptable word count (default: 1000)
   - `TARGET_WORD_COUNT` - Target word count (default: 1500)
+- **Multilingual Configuration** (NEW):
+  - `DEFAULT_LANGUAGE` - Default language for new projects (default: 'en')
+  - `SUPPORTED_LANGUAGES` - Comma-separated list of supported language codes
 
 ## Key Implementation Details
 

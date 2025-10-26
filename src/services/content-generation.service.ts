@@ -18,6 +18,50 @@ export class ContentGenerationService {
   private client: OpenAI;
   private model: string;
 
+  // Language name mapping (ISO 639-1 code → Full name)
+  private static readonly LANGUAGE_NAMES: Record<string, string> = {
+    en: 'English',
+    es: 'Spanish',
+    fr: 'French',
+    de: 'German',
+    it: 'Italian',
+    pt: 'Portuguese',
+    ru: 'Russian',
+    ja: 'Japanese',
+    zh: 'Chinese',
+    ko: 'Korean',
+    ar: 'Arabic',
+    hi: 'Hindi',
+    he: 'Hebrew',
+    fa: 'Persian',
+    tr: 'Turkish',
+    pl: 'Polish',
+    nl: 'Dutch',
+    sv: 'Swedish',
+    da: 'Danish',
+    fi: 'Finnish',
+    no: 'Norwegian',
+    cs: 'Czech',
+    hu: 'Hungarian',
+    ro: 'Romanian',
+    uk: 'Ukrainian',
+    th: 'Thai',
+    vi: 'Vietnamese',
+    id: 'Indonesian',
+    ms: 'Malay',
+    bn: 'Bengali',
+    ta: 'Tamil',
+    te: 'Telugu',
+    mr: 'Marathi',
+    gu: 'Gujarati',
+    kn: 'Kannada',
+    ml: 'Malayalam',
+    ur: 'Urdu',
+  };
+
+  // Right-to-left languages
+  private static readonly RTL_LANGUAGES = new Set(['ar', 'he', 'fa', 'ur']);
+
   constructor(apiKey: string, model: string = 'gpt-4o') {
     if (!apiKey) {
       throw new Error('OpenAI API key is required');
@@ -28,17 +72,37 @@ export class ContentGenerationService {
   }
 
   /**
+   * Get the full language name from ISO 639-1 code
+   * @param code ISO 639-1 language code (e.g., 'en', 'es', 'ja')
+   * @returns Full language name (e.g., 'English', 'Spanish', 'Japanese')
+   */
+  private getLanguageName(code: string): string {
+    return ContentGenerationService.LANGUAGE_NAMES[code.toLowerCase()] || code.toUpperCase();
+  }
+
+  /**
+   * Get script direction for a language
+   * @param code ISO 639-1 language code
+   * @returns 'rtl' for right-to-left languages, 'ltr' for left-to-right
+   */
+  private getScriptDirection(code: string): 'ltr' | 'rtl' {
+    return ContentGenerationService.RTL_LANGUAGES.has(code.toLowerCase()) ? 'rtl' : 'ltr';
+  }
+
+  /**
    * Generate complete blog post content from research
    * @param request Content generation request with title, research, and style
+   * @param language ISO 639-1 language code (e.g., 'en', 'es', 'ja')
    * @returns Platform-agnostic content object
    */
-  async generateContent(request: ContentGenerationRequest): Promise<Content> {
+  async generateContent(request: ContentGenerationRequest, language: string = 'en'): Promise<Content> {
     try {
-      console.log(`[Content Generation] Generating content for: ${request.title}`);
+      const languageName = this.getLanguageName(language);
+      console.log(`[Content Generation] Generating ${languageName} content for: ${request.title}`);
 
-      // Build system and user prompts
-      const systemPrompt = this.buildSystemPrompt(request.styleConfig);
-      const userPrompt = this.buildUserPrompt(request);
+      // Build system and user prompts with language context
+      const systemPrompt = this.buildSystemPrompt(request.styleConfig, language);
+      const userPrompt = this.buildUserPrompt(request, language);
 
       // Generate content using OpenAI
       const response = await this.client.chat.completions.create({
@@ -57,10 +121,10 @@ export class ContentGenerationService {
         throw new Error('No content generated from OpenAI');
       }
 
-      console.log('[Content Generation] Content generated successfully');
+      console.log(`[Content Generation] ${languageName} content generated successfully`);
 
       // Parse and structure the content
-      return this.parseGeneratedContent(generatedText, request);
+      return this.parseGeneratedContent(generatedText, request, language);
     } catch (error) {
       console.error('[Content Generation] Failed:', error);
       throw new Error(
@@ -75,6 +139,7 @@ export class ContentGenerationService {
    * @param request Content generation request
    * @param maxIterations Maximum number of iterations (default: 4)
    * @param minScore Minimum quality score to stop iterating (default: 8)
+   * @param language ISO 639-1 language code (e.g., 'en', 'es', 'ja')
    * @returns Final content and full iteration history
    */
   async generateContentIteratively(
@@ -82,10 +147,12 @@ export class ContentGenerationService {
     maxIterations: number = 4,
     minScore: number = 8,
     minWordCount: number = 1000,
-    targetWordCount: number = 1500
+    targetWordCount: number = 1500,
+    language: string = 'en'
   ): Promise<{ content: Content; iterations: IterationHistory[] }> {
     try {
-      console.log('\n[Content Generation] Starting iterative content generation...');
+      const languageName = this.getLanguageName(language);
+      console.log(`\n[Content Generation] Starting iterative ${languageName} content generation...`);
       console.log(
         `[Content Generation] Max iterations: ${maxIterations}, Target score: ${minScore}+/10`
       );
@@ -95,14 +162,16 @@ export class ContentGenerationService {
       let currentRating: QualityRating;
 
       // Iteration 1: Generate initial content
-      console.log('\n[Content Generation] === Iteration 1: Initial Generation ===');
-      currentContent = await this.generateContent(request);
+      console.log(`\n[Content Generation] === Iteration 1: Initial ${languageName} Generation ===`);
+      currentContent = await this.generateContent(request, language);
       currentRating = await this.rateContent(
         currentContent,
         request.styleConfig,
         minWordCount,
         targetWordCount,
-        request.research // Pass research for actionable feedback
+        request.research, // Pass research for actionable feedback
+        undefined, // No previous score for first iteration
+        language // Pass language for language-specific evaluation
       );
 
       iterations.push({
@@ -144,7 +213,8 @@ export class ContentGenerationService {
           currentRating,
           currentResearch,
           request.styleConfig,
-          iterations // Pass iteration history for context
+          iterations, // Pass iteration history for context
+          language // Pass language for multilingual improvement
         );
 
         // Rate the improved content
@@ -155,7 +225,8 @@ export class ContentGenerationService {
           minWordCount,
           targetWordCount,
           currentResearch, // Pass research for actionable feedback
-          iterations[iterations.length - 1].rating.score // Pass previous score for comparison
+          iterations[iterations.length - 1].rating.score, // Pass previous score for comparison
+          language // Pass language for language-specific evaluation
         );
 
         iterations.push({
@@ -790,10 +861,12 @@ Respond in JSON:
     minWordCount: number = 1000,
     targetWordCount: number = 1500,
     research?: ResearchResult,
-    previousScore?: number
+    previousScore?: number,
+    language: string = 'en'
   ): Promise<QualityRating> {
     try {
-      console.log('[Content Generation] Rating content quality...');
+      const languageName = this.getLanguageName(language);
+      console.log(`[Content Generation] Rating ${languageName} content quality...`);
 
       const wordCount = content.body.split(/\s+/).length;
 
@@ -813,8 +886,22 @@ Source #${i + 1}: ${r.title}
   .join('\n')}`;
       }
 
+      // Language-specific quality criteria
+      let languageCriteria = '';
+      if (language !== 'en') {
+        languageCriteria = `
+**CRITICAL LANGUAGE-SPECIFIC EVALUATION FOR ${languageName.toUpperCase()}:**
+1. **Language Purity** (10% weight): Is the content 100% in ${languageName}? No English mixing? No untranslated words?
+2. **Cultural Appropriateness** (15% weight): Are examples, idioms, and references suitable for ${languageName} speakers? Not just direct translations from English?
+3. **Grammar & Style** (15% weight): Proper ${languageName} grammar, punctuation, and writing conventions? Natural flow?
+4. **Citation Style** (5% weight): Are sources cited using natural ${languageName} phrasing (not "according to")?
+
+`;
+      }
+
       const prompt = `
 You are a strict content quality assessor using Self-Refine methodology.
+${language !== 'en' ? `You are evaluating ${languageName} content.` : ''}
 
 **IMPORTANT**: Provide SPECIFIC, ACTIONABLE feedback. For each issue:
 1. LOCALIZE: Identify the exact paragraph/section
@@ -833,14 +920,15 @@ ${researchSection}
 **Your Task:**
 Analyze the content paragraph-by-paragraph. For EACH weak paragraph, provide:
 - Location (e.g., "Paragraph 2", "Introduction", "Section: Quality Metrics")
-- Issue (What's wrong - be specific!)
+- Issue (What's wrong - be specific!${language !== 'en' ? ` Include language quality issues like English mixing, poor grammar, or cultural mismatch` : ''})
 - Action (HOW to fix it - reference which research source to use)
 
+${languageCriteria}
 Evaluate on these criteria (each scored 1-10):
 1. **Word Count** (${minWordCount}-${targetWordCount} is ideal)
 2. **Structure** (Clear intro/body/conclusion with subheadings)
 3. **Depth** (Research-backed insights with citations, not generic claims)
-4. **Engagement** (Hook, readability, actionable advice)
+4. **Engagement** (Hook, readability, actionable advice${language !== 'en' ? `, culturally appropriate for ${languageName} audience` : ''})
 
 Provide assessment in this JSON format:
 {
@@ -943,10 +1031,12 @@ Be VERY critical. Score 8+ means publication-ready. Provide at least 2-3 actiona
     rating: QualityRating,
     research: ResearchResult,
     styleConfig: StyleConfig,
-    iterationHistory?: IterationHistory[]
+    iterationHistory?: IterationHistory[],
+    language: string = 'en'
   ): Promise<Content> {
     try {
-      console.log('[Content Generation] Improving content based on feedback...');
+      const languageName = this.getLanguageName(language);
+      console.log(`[Content Generation] Improving ${languageName} content based on feedback...`);
       console.log(`[Content Generation] ${rating.actionable_improvements.length} actionable improvements to apply`);
 
       // DEBUG: Log improvements being applied
@@ -960,8 +1050,8 @@ Be VERY critical. Score 8+ means publication-ready. Provide at least 2-3 actiona
         }
       }
 
-      // Build improvement prompt
-      const systemPrompt = this.buildSystemPrompt(styleConfig);
+      // Build improvement prompt with language context
+      const systemPrompt = this.buildSystemPrompt(styleConfig, language);
 
       // Build iteration history context
       let historyContext = '';
@@ -1014,15 +1104,15 @@ ${i + 1}. ${r.title} (${r.source})
   .join('\n')}
 
 **Your Task:**
-Rewrite the blog post to address EVERY improvement listed above.
+Rewrite the blog post${language !== 'en' ? ` in ${languageName.toUpperCase()}` : ''} to address EVERY improvement listed above.
 
 For each improvement:
 - Find the exact location mentioned
 - Apply the specific action described
 - Use the referenced research source
-- Add substantial content (not minor tweaks)
+- Add substantial content (not minor tweaks)${language !== 'en' ? `\n- Ensure ALL content remains in ${languageName} (no English mixing)` : ''}
 
-Goal: 1200+ words with specific statistics, examples, and citations. Score 8+/10.
+Goal: 1200+ words with specific statistics, examples, and citations. Score 8+/10${language !== 'en' ? `. CRITICAL: Output must be 100% in ${languageName}.` : '.'}
       `.trim();
 
       const response = await this.client.chat.completions.create({
@@ -1066,21 +1156,42 @@ Goal: 1200+ words with specific statistics, examples, and citations. Score 8+/10
   }
 
   /**
-   * Build system prompt based on style configuration
+   * Build system prompt based on style configuration and language
    */
-  private buildSystemPrompt(styleConfig: StyleConfig): string {
+  private buildSystemPrompt(styleConfig: StyleConfig, language: string = 'en'): string {
     const tone = styleConfig.tone || 'professional';
     const length = styleConfig.length || 'medium';
+    const languageName = this.getLanguageName(language);
+    const scriptDirection = this.getScriptDirection(language);
+
+    // Base multilingual instructions (applied to all non-English languages)
+    let multilingualInstructions = '';
+    if (language !== 'en') {
+      multilingualInstructions = `
+🌍 CRITICAL MULTILINGUAL INSTRUCTIONS FOR ${languageName.toUpperCase()}:
+1. Write ENTIRELY in ${languageName} - do not mix languages or include English words
+2. Use culturally appropriate examples and references for ${languageName} speakers
+3. Follow ${scriptDirection} script conventions (${scriptDirection === 'rtl' ? 'right-to-left writing' : 'left-to-right writing'})
+4. Use ${languageName}-specific idioms and expressions (avoid direct English translations)
+5. Apply proper grammar, punctuation, and formatting for ${languageName}
+6. When citing sources, use natural ${languageName} phrasing (e.g., "según [fuente]" in Spanish, not "according to")
+7. Numbers, dates, and measurements should follow ${languageName} regional conventions
+
+${styleConfig.languageInstructions ? `\n📝 Language-specific guidance: ${styleConfig.languageInstructions}` : ''}
+${styleConfig.culturalConsiderations ? `\n🌏 Cultural context: ${styleConfig.culturalConsiderations}` : ''}
+`;
+    }
 
     return `
-You are an expert blog writer specializing in creating engaging, well-researched content.
-
+You are an expert blog writer specializing in creating engaging, well-researched content in ${languageName}.
+${multilingualInstructions}
 Writing style:
 - Tone: ${tone}
 - Length: ${length} (short: 300-500 words, medium: 500-800 words, long: 800-1200 words)
 - Format: Use markdown with proper headings (##, ###), lists, and emphasis
 - Structure: Include introduction, body with subheadings, and conclusion
 - Quality: Informative, engaging, SEO-friendly, and based on research provided
+- Language: 100% ${languageName} (no mixing with other languages)
 
 ${styleConfig.customInstructions ? `Additional instructions: ${styleConfig.customInstructions}` : ''}
 
@@ -1091,11 +1202,12 @@ Always cite sources when using specific facts or statistics.
   /**
    * Build user prompt with title, research, and AI-selected content angle
    */
-  private buildUserPrompt(request: ContentGenerationRequest): string {
+  private buildUserPrompt(request: ContentGenerationRequest, language: string = 'en'): string {
     const { title, fieldNiche, keywords, research, contentAngle } = request;
+    const languageName = this.getLanguageName(language);
 
-    let prompt = `Write a comprehensive blog post with the following details:\n\n`;
-    prompt += `Title: ${title}\n`;
+    let prompt = `Write a comprehensive blog post ${language !== 'en' ? `in ${languageName.toUpperCase()}` : ''} with the following details:\n\n`;
+    prompt += `Title${language !== 'en' ? ` (translate naturally to ${languageName})` : ''}: ${title}\n`;
 
     if (fieldNiche) {
       prompt += `Niche: ${fieldNiche}\n`;
@@ -1135,23 +1247,109 @@ Always cite sources when using specific facts or statistics.
     }
 
     if (research && research.results.length > 0) {
-      prompt += `\nResearch findings:\n`;
+      prompt += `\nResearch findings${language !== 'en' ? ' (may be in English or other languages - synthesize into ' + languageName + ')' : ''}:\n`;
       research.results.forEach((r, i) => {
         prompt += `\n${i + 1}. ${r.title}\n   Source: ${r.source}\n   ${r.snippet}\n`;
       });
     }
 
-    prompt += `\n\nGenerate a well-structured blog post in markdown format. Include:
+    // Language-specific final instructions
+    const languageReminder =
+      language !== 'en'
+        ? `\n\n🚨 CRITICAL: The ENTIRE blog post must be written in ${languageName.toUpperCase()} - no English words allowed except for proper nouns (company names, etc.). Translate the title naturally, use ${languageName}-native examples and references, and follow ${languageName} cultural norms.\n`
+        : '';
+
+    prompt += `${languageReminder}\nGenerate a well-structured blog post in markdown format. Include:
 1. An engaging introduction that hooks the reader${contentAngle ? ` (aligned with ${contentAngle.angle} angle)` : ''}
 2. Multiple body sections with descriptive subheadings
 3. Insights and analysis based on the research${contentAngle && contentAngle.focusAreas.length > 0 ? ` (focusing on: ${contentAngle.focusAreas.join(', ')})` : ''}
 4. Practical takeaways or actionable advice where relevant
 5. A strong conclusion
 
-Use the research findings to support your points and cite sources inline (e.g., "according to [source]").
+Use the research findings to support your points and cite sources inline${language !== 'en' ? ` (e.g., use natural ${languageName} phrasing, not direct English translation of "according to")` : ' (e.g., "according to [source]")'}.
 `;
 
     return prompt;
+  }
+
+  /**
+   * Generate SEO metadata for multilingual content
+   * @param content Generated content
+   * @param language ISO 639-1 language code
+   * @param regionalVariant Optional regional variant (e.g., 'es-MX', 'zh-CN')
+   * @returns SEO metadata with localized keywords and descriptions
+   */
+  async generateSEOMetadata(
+    content: Content,
+    language: string = 'en',
+    _regionalVariant?: string
+  ): Promise<{ localizedKeywords: string[]; metaDescription: string; ogLocale: string }> {
+    try {
+      const languageName = this.getLanguageName(language);
+      console.log(`[Content Generation] Generating ${languageName} SEO metadata...`);
+
+      const prompt = `
+Generate SEO metadata for this ${languageName} blog post.
+
+Title: ${content.title}
+Content Preview: ${content.body.slice(0, 500)}...
+
+Your task:
+1. Generate 5-10 localized keywords that ${languageName} speakers would actually search for
+2. Create a meta description (150-160 characters in ${languageName})
+3. Suggest an Open Graph locale code (e.g., "es_ES", "ja_JP", "en_US")
+
+IMPORTANT:
+- Keywords must be in ${languageName} and reflect how native speakers search
+- Meta description must be compelling and in ${languageName}
+- Focus on search intent and local search behavior
+
+Respond in JSON:
+{
+  "localizedKeywords": ["keyword 1", "keyword 2", ...],
+  "metaDescription": "Compelling description in ${languageName} (150-160 chars)",
+  "ogLocale": "language_REGION"
+}
+      `.trim();
+
+      const response = await this.client.chat.completions.create({
+        model: 'gpt-4o-mini', // Use mini for cost efficiency (~$0.005 per call)
+        messages: [
+          {
+            role: 'system',
+            content: `You are an SEO expert specializing in ${languageName} content optimization. Generate metadata that will perform well in ${languageName} search engines. Respond only with valid JSON.`,
+          },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.3, // Low temperature for consistent SEO decisions
+        max_tokens: 300,
+      });
+
+      let seoText = response.choices[0]?.message?.content || '{}';
+
+      // Strip markdown code blocks if present
+      seoText = seoText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+
+      const seoMetadata = JSON.parse(seoText);
+
+      console.log(
+        `[Content Generation] ✓ Generated SEO: ${seoMetadata.localizedKeywords?.length || 0} keywords, ${seoMetadata.metaDescription?.length || 0} char description`
+      );
+
+      return {
+        localizedKeywords: seoMetadata.localizedKeywords || [],
+        metaDescription: seoMetadata.metaDescription || content.title,
+        ogLocale: seoMetadata.ogLocale || `${language}_${language.toUpperCase()}`,
+      };
+    } catch (error) {
+      console.error(`[Content Generation] SEO metadata generation failed:`, error);
+      // Return fallback SEO metadata
+      return {
+        localizedKeywords: content.metadata.tags || [],
+        metaDescription: content.title.slice(0, 160),
+        ogLocale: `${language}_${language.toUpperCase()}`,
+      };
+    }
   }
 
   /**
@@ -1159,7 +1357,8 @@ Use the research findings to support your points and cite sources inline (e.g., 
    */
   private parseGeneratedContent(
     generatedText: string,
-    request: ContentGenerationRequest
+    request: ContentGenerationRequest,
+    language: string = 'en'
   ): Content {
     // For now, we'll create a simple structure
     // In production, you might want more sophisticated parsing
@@ -1171,6 +1370,7 @@ Use the research findings to support your points and cite sources inline (e.g., 
       metadata: {
         tags: request.keywords || [],
         publishDate: new Date(),
+        language, // Store the language code
         customFields: {
           fieldNiche: request.fieldNiche,
           generated: true,
