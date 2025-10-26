@@ -74,6 +74,8 @@ export interface ProjectInsert {
   parameters?: Record<string, any>;
   style_config?: Record<string, any>;
   is_active?: boolean;
+  language?: string;
+  language_config?: Record<string, any>;
 }
 
 export interface PostInsert {
@@ -118,6 +120,8 @@ export interface ProjectUpdate {
   parameters?: Record<string, any>;
   style_config?: Record<string, any>;
   is_active?: boolean;
+  language?: string;
+  language_config?: Record<string, any>;
 }
 
 export interface PostUpdate {

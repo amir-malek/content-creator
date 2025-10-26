@@ -77,6 +77,84 @@ export class DatabaseService {
     return data ? this.mapProjectRowToConfig(data) : null;
   }
 
+  /**
+   * Get all projects (including inactive)
+   */
+  async getAllProjects(): Promise<ProjectConfig[]> {
+    const { data, error } = await this.client.from('projects').select('*').order('name');
+
+    if (error) throw new Error(`Failed to get all projects: ${error.message}`);
+
+    return (data || []).map(this.mapProjectRowToConfig);
+  }
+
+  /**
+   * Create a new project
+   */
+  async createProject(projectData: any): Promise<ProjectConfig> {
+    const { data, error } = await this.client
+      .from('projects')
+      .insert({
+        name: projectData.name,
+        platform_type: projectData.platform_type,
+        endpoints: projectData.endpoints,
+        auth_config: projectData.auth_config,
+        parameters: projectData.parameters || {},
+        style_config: projectData.style_config || {},
+        is_active: projectData.is_active ?? true,
+        language: projectData.language || 'en',
+        language_config: projectData.language_config || {},
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        throw new Error(`Project with name "${projectData.name}" already exists`);
+      }
+      throw new Error(`Failed to create project: ${error.message}`);
+    }
+
+    return this.mapProjectRowToConfig(data);
+  }
+
+  /**
+   * Update an existing project
+   */
+  async updateProject(id: string, updates: any): Promise<void> {
+    const { error } = await this.client.from('projects').update(updates).eq('id', id);
+
+    if (error) {
+      if (error.code === '23505') {
+        throw new Error(`Project with name "${updates.name}" already exists`);
+      }
+      throw new Error(`Failed to update project: ${error.message}`);
+    }
+  }
+
+  /**
+   * Deactivate a project (soft delete)
+   */
+  async deactivateProject(id: string): Promise<void> {
+    await this.updateProject(id, { is_active: false });
+  }
+
+  /**
+   * Activate a project
+   */
+  async activateProject(id: string): Promise<void> {
+    await this.updateProject(id, { is_active: true });
+  }
+
+  /**
+   * Delete a project permanently (hard delete)
+   */
+  async deleteProject(id: string): Promise<void> {
+    const { error } = await this.client.from('projects').delete().eq('id', id);
+
+    if (error) throw new Error(`Failed to delete project: ${error.message}`);
+  }
+
   // ====================
   // POST OPERATIONS
   // ====================
@@ -186,6 +264,72 @@ export class DatabaseService {
     await this.updatePost(postId, {
       content_json: content as any,
     });
+  }
+
+  /**
+   * Get all posts with optional filters
+   */
+  async getAllPosts(filters?: {
+    projectId?: string;
+    status?: 'pending' | 'processing' | 'published' | 'failed';
+    startDate?: string;
+    endDate?: string;
+  }): Promise<Post[]> {
+    let query = this.client.from('posts').select('*');
+
+    if (filters?.projectId) {
+      query = query.eq('project_id', filters.projectId);
+    }
+
+    if (filters?.status) {
+      query = query.eq('status', filters.status);
+    }
+
+    if (filters?.startDate) {
+      query = query.gte('publish_date', filters.startDate);
+    }
+
+    if (filters?.endDate) {
+      query = query.lte('publish_date', filters.endDate);
+    }
+
+    const { data, error } = await query.order('publish_date', { ascending: false });
+
+    if (error) throw new Error(`Failed to get posts: ${error.message}`);
+
+    return (data || []).map(this.mapPostRowToPost);
+  }
+
+  /**
+   * Create a new post
+   */
+  async createPost(postData: any): Promise<Post> {
+    const { data, error } = await this.client
+      .from('posts')
+      .insert({
+        project_id: postData.project_id,
+        title: postData.title,
+        field_niche: postData.field_niche,
+        keywords: postData.keywords,
+        publish_date: postData.publish_date,
+        status: postData.status || 'pending',
+        max_retries: postData.max_retries || 3,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to create post: ${error.message}`);
+
+    return this.mapPostRowToPost(data);
+  }
+
+  /**
+   * Delete a post permanently
+   */
+  async deletePost(id: string): Promise<void> {
+    const { error } = await this.client.from('posts').delete().eq('id', id);
+
+    if (error) throw new Error(`Failed to delete post: ${error.message}`);
   }
 
   // ====================

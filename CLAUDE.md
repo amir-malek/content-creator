@@ -23,6 +23,21 @@ npm run migrate      # Run database migrations (requires SUPABASE_DB_PASSWORD in
 npm run view         # View the most recently generated blog post content
 ```
 
+### Project Management (NEW)
+```bash
+npm run cli project:add      # Interactive wizard to create a new project
+npm run cli project:list     # List all projects with details and status
+npm run cli project:edit     # Interactive editor for existing projects
+npm run cli project:delete   # Delete or deactivate a project (with confirmation)
+```
+
+### Post Management (NEW)
+```bash
+npm run cli post:add         # Interactive wizard to create a new post
+npm run cli post:list        # List all posts with filtering options
+npm run cli post:delete      # Delete a post (with confirmation)
+```
+
 ### Content Publishing
 ```bash
 npm run cli publish                    # Publish all pending posts
@@ -281,6 +296,8 @@ src/
 │   ├── index.ts              # Core interfaces (Content, IPublisher, etc.)
 │   └── database.ts           # Supabase schema types
 ├── utils/
+│   ├── adapter-scanner.ts    # Auto-detect available platform adapters (NEW)
+│   ├── prompt-helpers.ts     # Interactive CLI prompt utilities (NEW)
 │   └── retry.ts              # Exponential backoff utilities
 ├── cli.ts                # CLI entry point
 ├── scheduler.ts          # Cron scheduler
@@ -306,6 +323,126 @@ src/
 - Inject dependencies via constructor
 - Use `DatabaseService` for logging
 - Export from `src/index.ts` for external use
+
+## Managing Projects and Posts via CLI (NEW)
+
+The system now includes interactive CLI tools for managing projects and posts without writing SQL directly.
+
+### Creating a New Project
+
+Use the interactive wizard:
+```bash
+npm run cli project:add
+```
+
+The wizard will prompt you for:
+1. **Project Name** - Unique identifier for your project
+2. **Platform Type** - Auto-detected from available adapters (e.g., `wordpress`, `custom-backend-v1`)
+3. **Endpoints** - JSON with API URLs (e.g., `{"publish": "https://...", "auth": "https://..."}`)
+4. **Auth Config** - JSON with authentication credentials (e.g., `{"token": "...", "apiKey": "..."}`)
+5. **Parameters** - Optional platform-specific settings (e.g., `{"defaultStatus": "publish"}`)
+6. **Style Config** - Content generation preferences:
+   - Tone: professional, casual, formal, friendly, technical
+   - Length: short (500-800), medium (1000-1500), long (2000+)
+   - Include images: yes/no
+   - Custom instructions (optional)
+7. **Language** - Select from 20+ supported languages (en, es, fr, ja, ar, etc.)
+8. **Language Config** - Optional advanced settings (regional variants, script direction)
+
+Example output:
+```
+✅ Project "My WordPress Blog" created successfully!
+   ID: abc-123-def-456
+   Platform: wordpress
+   Language: en
+```
+
+### Viewing All Projects
+
+```bash
+npm run cli project:list
+```
+
+Shows all projects with:
+- Name and status (🟢 Active / 🔴 Inactive)
+- Platform type
+- Language
+- Available endpoints
+- Project ID (for reference)
+
+### Editing a Project
+
+```bash
+npm run cli project:edit
+```
+
+Interactive editor that lets you:
+1. Select project from list
+2. Choose field to edit (name, platform, endpoints, auth, parameters, style, language, status)
+3. Enter new value with validation
+4. Confirm changes
+
+### Deleting a Project
+
+```bash
+npm run cli project:delete
+```
+
+Interactive deletion with:
+- Project selection from list
+- Choice between soft delete (deactivate) or hard delete (permanent removal)
+- Confirmation prompt to prevent accidents
+
+### Creating a New Post
+
+```bash
+npm run cli post:add
+```
+
+The wizard will prompt you for:
+1. **Project** - Select from active projects
+2. **Post Title** - Title of the blog post
+3. **Field/Niche** - Topic area (e.g., Technology, Health, Finance)
+4. **Keywords** - Comma-separated list for research (e.g., "AI, automation, productivity")
+5. **Publish Date** - Date in YYYY-MM-DD format (default: today)
+
+The post is created with `status: 'pending'` and will be processed by the next publish run.
+
+### Viewing All Posts
+
+```bash
+npm run cli post:list
+```
+
+Interactive filters:
+- Filter by project (optional)
+- Filter by status: pending, processing, published, failed (optional)
+
+Shows:
+- Status emoji (⏳ pending, ⚙️ processing, ✅ published, ❌ failed)
+- Post title
+- Project name
+- Publish date
+- Retry count (if applicable)
+- Published URL (if published)
+
+### Deleting a Post
+
+```bash
+npm run cli post:delete
+```
+
+Interactive deletion with:
+- Post selection from list (shows title, project, status)
+- Confirmation prompt
+
+### Benefits of CLI Tools
+
+- **No SQL Required** - User-friendly interactive prompts
+- **Validation** - Input validation prevents database errors
+- **Auto-Detection** - Automatically finds available adapters
+- **Safe Operations** - Confirmation prompts for destructive actions
+- **Faster Workflow** - Quicker than writing SQL manually
 
 ## Testing the System
 
