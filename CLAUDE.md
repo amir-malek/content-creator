@@ -197,79 +197,63 @@ See `docs/ADAPTER_GUIDE.md` for detailed adapter creation instructions.
 
 #### Built-in Adapters
 
-**Supabase Publisher Adapter** (`supabase-publisher`) - NEW ✨
+**DuoSpace Adapters**
 
-Publishes content directly to any Supabase database table. Useful for:
-- Publishing to your own blog's database
-- Multi-blog setups with separate tables
-- Custom CMS backends built on Supabase
-- Direct database integration without REST APIs
+The system includes two adapters for DuoSpace publishing:
 
-**Features**:
-- Configurable table name per project
-- Flexible column mapping (map Content fields to your schema)
-- Automatic slug generation from post title
-- Duplicate slug detection with auto-suffixing
-- Stores images as JSONB (keeps Unsplash URLs, no upload)
-- Full metadata support (tags, categories, language, SEO)
+1. **DuoSpace API Adapter** (`duospace`) - REST API publishing
+   - Uses DuoSpace's REST API endpoints
+   - Requires email/password authentication
+   - Includes Cloudflare bypass logic
+   - See `src/adapters/duospace.adapter.ts`
 
-**Configuration Example**:
-```typescript
+2. **DuoSpace Supabase Adapter** (`duospace-supabase`) - Direct database publishing ✨
+   - Publishes directly to DuoSpace's Supabase database
+   - Bypasses REST API for faster publishing
+   - **Zero configuration needed** - all schema knowledge is hardcoded
+   - Perfect for high-volume publishing
+
+**DuoSpace Supabase Adapter Details**:
+
+This adapter encapsulates all DuoSpace-specific configuration internally. No endpoints or parameters needed!
+
+**Minimal Configuration**:
+```json
 {
-  platformType: 'supabase-publisher',
-  endpoints: {
-    table: 'blog_posts'  // Your target table name
-  },
-  authConfig: {
-    supabaseUrl: 'https://xxx.supabase.co',
-    supabaseKey: 'your-service-role-key'  // Service role key for write access
-  },
-  parameters: {
-    columnMapping: {
-      title: 'post_title',      // Maps Content.title → post_title column
-      body: 'content_html',      // Maps Content.body → content_html column
-      slug: 'slug',              // Stores generated slug
-      images: 'featured_images', // Maps Content.images → featured_images JSONB
-      metadata: 'meta'           // Maps Content.metadata → meta JSONB
-    }
+  "platformType": "duospace-supabase",
+  "authConfig": {
+    "supabaseUrl": "https://xxx.supabase.co",
+    "supabaseKey": "your-service-role-key",
+    "authorId": "user-xxx"
   }
 }
 ```
 
-**SQL Table Schema Example**:
-```sql
-CREATE TABLE blog_posts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  post_title TEXT NOT NULL,
-  content_html TEXT NOT NULL,
-  slug TEXT UNIQUE NOT NULL,
-  featured_images JSONB,
-  meta JSONB,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+**What's Hardcoded**:
+- Table name: `posts`
+- Column schema matching DuoSpace's database structure
+- Automatic slug generation and duplicate handling
+- Excerpt generation (first 160 chars)
+- Meta description (same as excerpt)
+- Published flag (always `true`)
+- Default authorId (configurable via authConfig)
 
--- Enable Row Level Security if needed
-ALTER TABLE blog_posts ENABLE ROW LEVEL SECURITY;
-```
-
-**Creating a Supabase Publisher Project**:
+**Creating a DuoSpace Supabase Project**:
 ```bash
 npm run cli project:add
-# Select platform: supabase-publisher
-# Enter table name: blog_posts
+# Select platform: duospace-supabase
 # Enter Supabase URL: https://xxx.supabase.co
 # Enter service role key: eyJ...
-# Configure column mapping as needed
+# (Optional) Enter authorId: user-xxx
 ```
 
-**How It Works**:
-1. Validates Supabase connection and table existence on authenticate()
-2. Generates URL-friendly slug from post title (e.g., "My Post" → "my-post")
-3. Checks if slug exists, adds suffix if needed (my-post-1, my-post-2, etc.)
-4. Maps Content object to table columns using columnMapping
-5. Inserts row into Supabase table
-6. Returns slug as the "published URL"
+**When to Use Each Adapter**:
+- Use `duospace` for standard publishing with DuoSpace's API
+- Use `duospace-supabase` for:
+  - Direct database access
+  - Bypassing API rate limits
+  - Faster publishing (no HTTP overhead)
+  - Bulk publishing operations
 
 ### Database Schema
 
