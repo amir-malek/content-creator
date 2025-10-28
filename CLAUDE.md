@@ -195,6 +195,82 @@ Every adapter must implement:
 
 See `docs/ADAPTER_GUIDE.md` for detailed adapter creation instructions.
 
+#### Built-in Adapters
+
+**Supabase Publisher Adapter** (`supabase-publisher`) - NEW ✨
+
+Publishes content directly to any Supabase database table. Useful for:
+- Publishing to your own blog's database
+- Multi-blog setups with separate tables
+- Custom CMS backends built on Supabase
+- Direct database integration without REST APIs
+
+**Features**:
+- Configurable table name per project
+- Flexible column mapping (map Content fields to your schema)
+- Automatic slug generation from post title
+- Duplicate slug detection with auto-suffixing
+- Stores images as JSONB (keeps Unsplash URLs, no upload)
+- Full metadata support (tags, categories, language, SEO)
+
+**Configuration Example**:
+```typescript
+{
+  platformType: 'supabase-publisher',
+  endpoints: {
+    table: 'blog_posts'  // Your target table name
+  },
+  authConfig: {
+    supabaseUrl: 'https://xxx.supabase.co',
+    supabaseKey: 'your-service-role-key'  // Service role key for write access
+  },
+  parameters: {
+    columnMapping: {
+      title: 'post_title',      // Maps Content.title → post_title column
+      body: 'content_html',      // Maps Content.body → content_html column
+      slug: 'slug',              // Stores generated slug
+      images: 'featured_images', // Maps Content.images → featured_images JSONB
+      metadata: 'meta'           // Maps Content.metadata → meta JSONB
+    }
+  }
+}
+```
+
+**SQL Table Schema Example**:
+```sql
+CREATE TABLE blog_posts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_title TEXT NOT NULL,
+  content_html TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  featured_images JSONB,
+  meta JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable Row Level Security if needed
+ALTER TABLE blog_posts ENABLE ROW LEVEL SECURITY;
+```
+
+**Creating a Supabase Publisher Project**:
+```bash
+npm run cli project:add
+# Select platform: supabase-publisher
+# Enter table name: blog_posts
+# Enter Supabase URL: https://xxx.supabase.co
+# Enter service role key: eyJ...
+# Configure column mapping as needed
+```
+
+**How It Works**:
+1. Validates Supabase connection and table existence on authenticate()
+2. Generates URL-friendly slug from post title (e.g., "My Post" → "my-post")
+3. Checks if slug exists, adds suffix if needed (my-post-1, my-post-2, etc.)
+4. Maps Content object to table columns using columnMapping
+5. Inserts row into Supabase table
+6. Returns slug as the "published URL"
+
 ### Database Schema
 
 **projects** table:

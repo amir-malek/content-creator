@@ -268,3 +268,28 @@ export interface IterationHistory {
   content: Content;
   rating: QualityRating;
 }
+
+/**
+ * Configuration for Supabase Publisher Adapter
+ * Used for publishing directly to a Supabase database table
+ */
+export interface SupabasePublisherConfig {
+  endpoints: {
+    table: string; // Target table name (e.g., 'blog_posts')
+  };
+  authConfig: {
+    supabaseUrl: string; // Supabase project URL
+    supabaseKey: string; // Supabase service role key
+  };
+  parameters?: {
+    columnMapping?: {
+      title?: string; // Table column for post title (default: 'title')
+      body?: string; // Table column for post body (default: 'body')
+      slug?: string; // Table column for URL slug (default: 'slug')
+      images?: string; // Table column for images JSONB (default: 'images')
+      metadata?: string; // Table column for metadata JSONB (default: 'metadata')
+      [key: string]: string | undefined; // Additional custom field mappings
+    };
+    generateSlugFromColumn?: string; // Which content field to use for slug generation (default: 'title')
+  };
+}
