@@ -10,15 +10,15 @@ import { Content, ProjectConfig, PublishResult } from '../types/index.js';
  * {
  *   platformType: 'petili',
  *   endpoints: {
- *     publish: 'http://petili.ir/api/blog/create'
+ *     publish: 'https://petili.ir/api/blog/create'
  *   },
  *   authConfig: {
  *     apiKey: 'your-api-key-here'
  *   },
  *   parameters: {
  *     author: {
- *       name: 'Author Name',
- *       picture: 'https://example.com/author.jpg'
+ *       name: 'Author Name',           // Optional - defaults to 'پتیلی'
+ *       picture: 'https://example.com/author.jpg'  // Optional - defaults to Petili logo
  *     }
  *   }
  * }
@@ -66,14 +66,19 @@ export default class PetiliAdapter extends BasePublisherAdapter {
       const payload = this.transformContent(content);
 
       // Make publish request
-      const response = await this.makeRequest<{ id?: string; url?: string; slug?: string }>(
+      const response = await this.makeRequest<{
+        success?: boolean;
+        post?: { postId?: string; slug?: string; };
+        url?: string;
+      }>(
         'POST',
         'publish',
         payload
       );
 
-      // Construct URL from response (adjust based on actual API response)
-      const publishedUrl = response.url || `http://petili.ir/blog/${response.slug || response.id}`;
+      // Construct URL from response
+      const slug = response.post?.slug || response.post?.postId || 'unknown';
+      const publishedUrl = response.url || `https://petili.ir/posts/${slug}`;
 
       this.log('info', `Published successfully to Petili: ${publishedUrl}`);
 
@@ -87,11 +92,11 @@ export default class PetiliAdapter extends BasePublisherAdapter {
    * Transform platform-agnostic content to Petili format
    */
   private transformContent(content: Content): any {
-    // Get author info from parameters or use default
-    // const author = this.config.parameters?.author || {
-    //   name: 'Content Creator',
-    //   picture: 'https://via.placeholder.com/150'
-    // };
+    // Get author info from parameters or use hardcoded default
+    const author = this.config.parameters?.author || {
+      name: 'پتیلی',
+      picture: 'https://petili.ir/logo/logo-88x88.png'
+    };
 
     // Generate excerpt from body if not provided
     const excerpt = this.generateExcerpt(content.body);
@@ -104,10 +109,10 @@ export default class PetiliAdapter extends BasePublisherAdapter {
       excerpt,
       content: content.body,
       coverImage,
-      // author: {
-      //   name: author.name,
-      //   picture: author.picture
-      // }
+      author: {
+        name: author.name,
+        picture: author.picture
+      }
     };
   }
 

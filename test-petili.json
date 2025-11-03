@@ -1,0 +1,10 @@
+{
+  "title": "Test Post",
+  "excerpt": "This is a test excerpt",
+  "content": "# Test Content\n\nThis is test content.",
+  "coverImage": "https://via.placeholder.com/1200x630",
+  "author": {
+    "name": "پتیلی",
+    "picture": "https://petili.ir/logo/logo-88x88.png"
+  }
+}
