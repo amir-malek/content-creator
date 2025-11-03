@@ -51,6 +51,28 @@ export interface HrefLangAlternate {
 }
 
 /**
+ * S3 configuration for image storage
+ */
+export interface S3Config {
+  endpoint: string; // S3 endpoint URL (e.g., https://s3.ir-thr-at1.arvanstorage.ir)
+  accessKeyId: string; // S3 access key
+  secretAccessKey: string; // S3 secret key
+  bucket: string; // S3 bucket name
+  region: string; // S3 region (e.g., ir-thr-at1)
+  publicUrl?: string; // Optional public URL for accessing images
+}
+
+/**
+ * Result of an S3 upload operation
+ */
+export interface S3UploadResult {
+  success: boolean;
+  url?: string; // S3 URL of uploaded image
+  key?: string; // S3 object key
+  error?: string;
+}
+
+/**
  * Project configuration stored in database
  */
 export interface ProjectConfig {
@@ -64,6 +86,8 @@ export interface ProjectConfig {
   isActive: boolean;
   language?: string; // ISO 639-1 code (en, es, fr, ja, ar, etc.)
   languageConfig?: LanguageConfig;
+  useS3ForImages?: boolean; // Enable S3 upload for images (default: false)
+  s3Config?: S3Config; // Per-project S3 credentials (overrides global env vars)
 }
 
 /**

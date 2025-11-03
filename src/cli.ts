@@ -8,6 +8,7 @@ import { DatabaseService } from './services/database.service.js';
 import { ResearchService } from './services/research.service.js';
 import { ContentGenerationService } from './services/content-generation.service.js';
 import { ImageService } from './services/image.service.js';
+import { S3Service } from './services/s3.service.js';
 import { WorkflowService } from './services/workflow.service.js';
 import { PublisherService } from './services/publisher.service.js';
 import {
@@ -25,6 +26,8 @@ import {
   promptPublishDate,
   promptConfirm,
   promptSelect,
+  promptEnableS3,
+  promptS3Config,
 } from './utils/prompt-helpers.js';
 
 // Load environment variables
@@ -74,8 +77,11 @@ function initializeServices(): PublisherService {
   // Workflow
   const workflow = new WorkflowService(research, contentGen);
 
+  // S3 (for image storage)
+  const s3Service = new S3Service(db);
+
   // Images
-  const imageService = new ImageService(process.env.UNSPLASH_ACCESS_KEY!);
+  const imageService = new ImageService(process.env.UNSPLASH_ACCESS_KEY!, s3Service);
 
   // Publisher (main orchestrator)
   return new PublisherService(db, workflow, imageService);
@@ -249,6 +255,13 @@ async function handleProjectAdd(db: DatabaseService): Promise<void> {
     const language = await promptLanguage();
     const language_config = await promptLanguageConfig(language);
 
+    // S3 configuration
+    const use_s3_for_images = await promptEnableS3(false);
+    let s3_config = null;
+    if (use_s3_for_images) {
+      s3_config = await promptS3Config();
+    }
+
     const project = await db.createProject({
       name,
       platform_type,
@@ -258,6 +271,8 @@ async function handleProjectAdd(db: DatabaseService): Promise<void> {
       style_config,
       language,
       language_config,
+      use_s3_for_images,
+      s3_config,
       is_active: true,
     });
 
@@ -265,6 +280,10 @@ async function handleProjectAdd(db: DatabaseService): Promise<void> {
     console.log(`   ID: ${project.id}`);
     console.log(`   Platform: ${project.platformType}`);
     console.log(`   Language: ${project.language}`);
+    if (use_s3_for_images) {
+      const configSource = s3_config ? 'project-specific' : 'global';
+      console.log(`   S3 Upload: ✓ Enabled (${configSource} configuration)`);
+    }
   } catch (error: any) {
     console.error(`\n❌ Failed to create project: ${error.message}`);
     process.exit(1);
@@ -328,6 +347,9 @@ async function handleProjectEdit(db: DatabaseService): Promise<void> {
     const project = projects.find((p) => p.id === selectedProject);
     if (!project) throw new Error('Project not found');
 
+    const s3Status = project.useS3ForImages ? '✓ Enabled' : '✗ Disabled';
+    const s3ConfigSource = project.s3Config ? 'project-specific' : 'global';
+
     const fieldToEdit = await promptSelect(
       'Select field to edit:',
       [
@@ -339,6 +361,8 @@ async function handleProjectEdit(db: DatabaseService): Promise<void> {
         { value: 'style_config', name: 'Style Config', description: 'Edit content style' },
         { value: 'language', name: 'Language', description: `Current: ${project.language}` },
         { value: 'language_config', name: 'Language Config', description: 'Edit language settings' },
+        { value: 'use_s3_for_images', name: 'S3 Upload', description: `${s3Status}` },
+        { value: 's3_config', name: 'S3 Configuration', description: `Using ${s3ConfigSource} config` },
         { value: 'is_active', name: 'Status', description: project.isActive ? 'Active' : 'Inactive' },
       ]
     );
@@ -369,6 +393,12 @@ async function handleProjectEdit(db: DatabaseService): Promise<void> {
         break;
       case 'language_config':
         newValue = await promptLanguageConfig(project.language || 'en', project.languageConfig);
+        break;
+      case 'use_s3_for_images':
+        newValue = await promptEnableS3(project.useS3ForImages);
+        break;
+      case 's3_config':
+        newValue = await promptS3Config();
         break;
       case 'is_active':
         newValue = await promptConfirm('Activate project?', project.isActive);

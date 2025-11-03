@@ -23,6 +23,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.922.0",
     "@inquirer/prompts": "^7.9.0",
     "@supabase/supabase-js": "^2.39.0",
     "axios": "^1.6.5",

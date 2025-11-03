@@ -312,3 +312,81 @@ export function truncate(text: string, maxLength: number = 50): string {
   if (text.length <= maxLength) return text;
   return text.substring(0, maxLength - 3) + '...';
 }
+
+/**
+ * Prompt to enable S3 image upload
+ */
+export async function promptEnableS3(defaultValue: boolean = false): Promise<boolean> {
+  return confirm({
+    message: 'Upload images to S3 storage?',
+    default: defaultValue,
+  });
+}
+
+/**
+ * Prompt for S3 configuration
+ * Returns null if user wants to use global configuration
+ */
+export async function promptS3Config(): Promise<any | null> {
+  // Check if global S3 config exists
+  const hasGlobalConfig =
+    process.env.S3_ENDPOINT &&
+    process.env.S3_ACCESS_KEY_ID &&
+    process.env.S3_SECRET_ACCESS_KEY &&
+    process.env.S3_BUCKET_NAME;
+
+  if (hasGlobalConfig) {
+    console.log('\n   ℹ️  Global S3 configuration detected in environment variables');
+    const useGlobal = await confirm({
+      message: 'Use global S3 configuration?',
+      default: true,
+    });
+
+    if (useGlobal) {
+      return null; // Use global config
+    }
+  }
+
+  console.log('\n   📦 Enter S3 credentials (or press Ctrl+C to use global config):\n');
+
+  const endpoint = await input({
+    message: 'S3 endpoint URL:',
+    default: 'https://s3.ir-thr-at1.arvanstorage.ir',
+    validate: validateURL,
+  });
+
+  const bucket = await input({
+    message: 'S3 bucket name:',
+    validate: validateRequired,
+  });
+
+  const accessKeyId = await input({
+    message: 'S3 access key ID:',
+    validate: validateRequired,
+  });
+
+  const secretAccessKey = await input({
+    message: 'S3 secret access key:',
+    validate: validateRequired,
+  });
+
+  const region = await input({
+    message: 'S3 region:',
+    default: 'ir-thr-at1',
+    validate: validateRequired,
+  });
+
+  const publicUrl = await input({
+    message: 'S3 public URL (optional, press Enter to skip):',
+    default: '',
+  });
+
+  return {
+    endpoint,
+    bucket,
+    accessKeyId,
+    secretAccessKey,
+    region,
+    publicUrl: publicUrl || undefined,
+  };
+}

@@ -15,6 +15,8 @@ export interface ProjectRow {
   is_active: boolean;
   language: string; // ISO 639-1 code (en, es, ja, etc.)
   language_config: Record<string, any>; // LanguageConfig as JSON
+  use_s3_for_images?: boolean; // Enable S3 upload for images
+  s3_config?: Record<string, any> | null; // S3Config as JSON (per-project credentials)
   created_at: string;
   updated_at: string;
 }
@@ -76,6 +78,8 @@ export interface ProjectInsert {
   is_active?: boolean;
   language?: string;
   language_config?: Record<string, any>;
+  use_s3_for_images?: boolean;
+  s3_config?: Record<string, any> | null;
 }
 
 export interface PostInsert {
@@ -122,6 +126,8 @@ export interface ProjectUpdate {
   is_active?: boolean;
   language?: string;
   language_config?: Record<string, any>;
+  use_s3_for_images?: boolean;
+  s3_config?: Record<string, any> | null;
 }
 
 export interface PostUpdate {

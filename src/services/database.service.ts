@@ -104,6 +104,8 @@ export class DatabaseService {
         is_active: projectData.is_active ?? true,
         language: projectData.language || 'en',
         language_config: projectData.language_config || {},
+        use_s3_for_images: projectData.use_s3_for_images ?? false,
+        s3_config: projectData.s3_config || null,
       })
       .select()
       .single();
@@ -505,6 +507,8 @@ export class DatabaseService {
       isActive: row.is_active,
       language: row.language || 'en', // Default to English if not specified
       languageConfig: row.language_config,
+      useS3ForImages: row.use_s3_for_images || false,
+      s3Config: row.s3_config ? (row.s3_config as any) : undefined,
     };
   }
 

@@ -125,9 +125,14 @@ export class PublisherService {
       // Step 2: Add images if enabled
       if (project.styleConfig.includeImages !== false) {
         console.log('   → Finding images...');
-        const enhancedContent = await this.imageService.enhanceContentWithImages(content, 3);
+        const enhancedContent = await this.imageService.enhanceContentWithImages(content, 3, project);
         Object.assign(content, enhancedContent);
         console.log(`   ✓ Added ${content.images.length} image(s)`);
+
+        // Log S3 status if enabled
+        if (project.useS3ForImages && content.images.length > 0) {
+          console.log('   ℹ️  Images uploaded to S3 storage');
+        }
       }
 
       // Save generated content and iterations to database

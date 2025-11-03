@@ -1,16 +1,19 @@
 // Image Service - Search and select images using Unsplash
 
 import { createApi } from 'unsplash-js';
-import { Image, Content } from '../types/index.js';
+import { Image, Content, ProjectConfig } from '../types/index.js';
+import { S3Service } from './s3.service.js';
 
 /**
  * Image service for finding relevant images using Unsplash API
+ * Optionally uploads images to S3 for self-hosted storage
  * Uses free tier - provides high-quality royalty-free images
  */
 export class ImageService {
   private unsplash: ReturnType<typeof createApi>;
+  private s3Service: S3Service;
 
-  constructor(accessKey: string) {
+  constructor(accessKey: string, s3Service: S3Service) {
     if (!accessKey) {
       throw new Error('Unsplash access key is required');
     }
@@ -18,6 +21,7 @@ export class ImageService {
     this.unsplash = createApi({
       accessKey,
     });
+    this.s3Service = s3Service;
   }
 
   /**
@@ -77,30 +81,90 @@ export class ImageService {
 
   /**
    * Add images to existing content
+   * Optionally uploads images to S3 if enabled for the project
    * @param content Content to enhance with images
    * @param imageCount Number of images to add (default: 3)
-   * @returns Content with images added
+   * @param project Optional project config for S3 upload
+   * @returns Content with images added (with S3 URLs if enabled)
    */
-  async enhanceContentWithImages(content: Content, imageCount: number = 3): Promise<Content> {
+  async enhanceContentWithImages(
+    content: Content,
+    imageCount: number = 3,
+    project?: ProjectConfig
+  ): Promise<Content> {
     try {
-      // Search for images
-      const images = await this.searchImages(
+      // Search for images from Unsplash
+      const unsplashImages = await this.searchImages(
         content.title,
         content.metadata.customFields?.fieldNiche,
         content.metadata.tags,
         imageCount
       );
 
-      // Update content with images
+      // Check if S3 upload is enabled for this project
+      const shouldUploadToS3 = project?.useS3ForImages && this.s3Service.isConfigured(project);
+
+      let finalImages = unsplashImages;
+
+      if (shouldUploadToS3 && unsplashImages.length > 0) {
+        console.log('[Image Service] S3 upload enabled, uploading images to S3');
+        finalImages = await this.uploadImagesToS3(unsplashImages, project);
+      } else if (project?.useS3ForImages && !this.s3Service.isConfigured(project)) {
+        console.warn('[Image Service] S3 upload requested but S3 not configured, using Unsplash URLs');
+      }
+
+      // Update content with images (either S3 URLs or Unsplash URLs)
       return {
         ...content,
-        images,
+        images: finalImages,
       };
     } catch (error) {
       console.error('[Image Service] Failed to enhance content with images:', error);
       // Return original content if image enhancement fails
       return content;
     }
+  }
+
+  /**
+   * Upload Unsplash images to S3 and return updated image objects with S3 URLs
+   * Falls back to original Unsplash URLs if upload fails
+   * @param images Unsplash images to upload
+   * @param project Project configuration
+   * @returns Images with S3 URLs (or original Unsplash URLs if upload failed)
+   */
+  private async uploadImagesToS3(images: Image[], project?: ProjectConfig): Promise<Image[]> {
+    const uploadedImages: Image[] = [];
+
+    for (const image of images) {
+      try {
+        console.log(`[Image Service] Uploading image to S3: ${image.url}`);
+
+        // Upload to S3
+        const uploadResult = await this.s3Service.uploadImageFromUrl(image.url, project);
+
+        if (uploadResult.success && uploadResult.url) {
+          // Use S3 URL
+          uploadedImages.push({
+            ...image,
+            url: uploadResult.url,
+          });
+          console.log(`[Image Service] Image uploaded successfully: ${uploadResult.url}`);
+        } else {
+          // Fallback to Unsplash URL
+          console.warn(
+            `[Image Service] S3 upload failed (${uploadResult.error}), using Unsplash URL`
+          );
+          uploadedImages.push(image);
+        }
+      } catch (error) {
+        // Fallback to Unsplash URL on error
+        console.error('[Image Service] S3 upload error:', error);
+        console.warn('[Image Service] Using Unsplash URL as fallback');
+        uploadedImages.push(image);
+      }
+    }
+
+    return uploadedImages;
   }
 
   /**

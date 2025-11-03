@@ -7,6 +7,7 @@ import { DatabaseService } from './services/database.service.js';
 import { ResearchService } from './services/research.service.js';
 import { ContentGenerationService } from './services/content-generation.service.js';
 import { ImageService } from './services/image.service.js';
+import { S3Service } from './services/s3.service.js';
 import { WorkflowService } from './services/workflow.service.js';
 import { PublisherService } from './services/publisher.service.js';
 
@@ -57,8 +58,11 @@ function initializeServices(): PublisherService {
   // Workflow
   const workflow = new WorkflowService(research, contentGen);
 
+  // S3 (for image storage)
+  const s3Service = new S3Service(db);
+
   // Images
-  const imageService = new ImageService(process.env.UNSPLASH_ACCESS_KEY!);
+  const imageService = new ImageService(process.env.UNSPLASH_ACCESS_KEY!, s3Service);
 
   // Publisher (main orchestrator)
   return new PublisherService(db, workflow, imageService);
