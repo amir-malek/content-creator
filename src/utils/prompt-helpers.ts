@@ -191,6 +191,79 @@ export async function promptStyleConfig(defaultValue?: any): Promise<any> {
     default: defaultValue?.includeImages ?? true,
   });
 
+  let imageSource: string | undefined;
+  let openaiImageConfig: any | undefined;
+
+  if (includeImages) {
+    // Ask for image source
+    imageSource = await select({
+      message: 'Image source:',
+      choices: [
+        { value: 'unsplash', name: 'Unsplash (free stock photos)' },
+        { value: 'openai', name: 'OpenAI DALL-E (AI-generated, $0.04-0.08 per image)' },
+        { value: 'hybrid', name: 'Hybrid (1 DALL-E + 2 Unsplash, $0.04 per post)' },
+        { value: 'none', name: 'None (no images)' },
+      ],
+      default: defaultValue?.imageSource || 'unsplash',
+    });
+
+    // If OpenAI is selected, prompt for DALL-E configuration
+    if (imageSource === 'openai' || imageSource === 'hybrid') {
+      console.log('\n🎨 OpenAI DALL-E Configuration\n');
+
+      // Show cost warning
+      if (imageSource === 'openai') {
+        console.log('⚠️  Cost: ~$0.12-0.24 per post (3 images)');
+      } else {
+        console.log('💡 Cost: ~$0.04 per post (1 DALL-E + 2 Unsplash)');
+      }
+      console.log('⚠️  S3 configuration required (DALL-E URLs expire in 1 hour)\n');
+
+      const quality = await select({
+        message: 'Image quality:',
+        choices: [
+          { value: 'standard', name: 'Standard ($0.04 per image)' },
+          { value: 'hd', name: 'HD ($0.08 per image)' },
+        ],
+        default: defaultValue?.openaiImageConfig?.quality || 'standard',
+      });
+
+      const style = await select({
+        message: 'Image style:',
+        choices: [
+          { value: 'vivid', name: 'Vivid (hyper-realistic, cinematic)' },
+          { value: 'natural', name: 'Natural (realistic, less dramatic)' },
+        ],
+        default: defaultValue?.openaiImageConfig?.style || 'vivid',
+      });
+
+      const size = await select({
+        message: 'Image size:',
+        choices: [
+          { value: '1024x1024', name: 'Square (1024×1024)' },
+          { value: '1792x1024', name: 'Landscape (1792×1024) - recommended for blog headers' },
+          { value: '1024x1792', name: 'Portrait (1024×1792)' },
+        ],
+        default: defaultValue?.openaiImageConfig?.size || '1024x1024',
+      });
+
+      const promptEnhancement = await confirm({
+        message: 'Use AI to enhance image prompts? (adds ~$0.001 per image)',
+        default: defaultValue?.openaiImageConfig?.promptEnhancement ?? true,
+      });
+
+      openaiImageConfig = {
+        model: 'dall-e-3', // Only support DALL-E 3
+        quality,
+        style,
+        size,
+        promptEnhancement,
+      };
+    }
+  } else {
+    imageSource = 'none';
+  }
+
   const customInstructions = await input({
     message: 'Custom instructions [optional]:',
     default: defaultValue?.customInstructions || '',
@@ -200,6 +273,8 @@ export async function promptStyleConfig(defaultValue?: any): Promise<any> {
     tone,
     length,
     includeImages,
+    imageSource,
+    ...(openaiImageConfig && { openaiImageConfig }),
     ...(customInstructions && { customInstructions }),
   };
 }

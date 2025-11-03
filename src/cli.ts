@@ -8,6 +8,7 @@ import { DatabaseService } from './services/database.service.js';
 import { ResearchService } from './services/research.service.js';
 import { ContentGenerationService } from './services/content-generation.service.js';
 import { ImageService } from './services/image.service.js';
+import { OpenAIImageService } from './services/openai-image.service.js';
 import { S3Service } from './services/s3.service.js';
 import { WorkflowService } from './services/workflow.service.js';
 import { PublisherService } from './services/publisher.service.js';
@@ -80,8 +81,21 @@ function initializeServices(): PublisherService {
   // S3 (for image storage)
   const s3Service = new S3Service(db);
 
+  // OpenAI Image Generation (DALL-E)
+  // Optional - only used when project imageSource is 'openai' or 'hybrid'
+  const openaiImageService = new OpenAIImageService(
+    process.env.OPENAI_API_KEY!,
+    s3Service,
+    db,
+    'gpt-4o-mini' // Model for prompt enhancement
+  );
+
   // Images
-  const imageService = new ImageService(process.env.UNSPLASH_ACCESS_KEY!, s3Service);
+  const imageService = new ImageService(
+    process.env.UNSPLASH_ACCESS_KEY!,
+    s3Service,
+    openaiImageService // Pass OpenAI service for DALL-E support
+  );
 
   // Publisher (main orchestrator)
   return new PublisherService(db, workflow, imageService);

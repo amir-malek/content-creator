@@ -1,19 +1,21 @@
-// Image Service - Search and select images using Unsplash
+// Image Service - Search and select images using Unsplash or OpenAI DALL-E
 
 import { createApi } from 'unsplash-js';
 import { Image, Content, ProjectConfig } from '../types/index.js';
 import { S3Service } from './s3.service.js';
+import { OpenAIImageService } from './openai-image.service.js';
 
 /**
- * Image service for finding relevant images using Unsplash API
+ * Image service for finding relevant images using Unsplash API or OpenAI DALL-E
  * Optionally uploads images to S3 for self-hosted storage
- * Uses free tier - provides high-quality royalty-free images
+ * Supports multiple image sources: Unsplash (free), OpenAI (AI-generated), Hybrid (mix), None
  */
 export class ImageService {
   private unsplash: ReturnType<typeof createApi>;
   private s3Service: S3Service;
+  private openaiImageService?: OpenAIImageService;
 
-  constructor(accessKey: string, s3Service: S3Service) {
+  constructor(accessKey: string, s3Service: S3Service, openaiImageService?: OpenAIImageService) {
     if (!accessKey) {
       throw new Error('Unsplash access key is required');
     }
@@ -22,6 +24,7 @@ export class ImageService {
       accessKey,
     });
     this.s3Service = s3Service;
+    this.openaiImageService = openaiImageService;
   }
 
   /**
@@ -81,10 +84,11 @@ export class ImageService {
 
   /**
    * Add images to existing content
+   * Routes to appropriate image source based on project configuration
    * Optionally uploads images to S3 if enabled for the project
    * @param content Content to enhance with images
    * @param imageCount Number of images to add (default: 3)
-   * @param project Optional project config for S3 upload
+   * @param project Optional project config for image source and S3 upload
    * @returns Content with images added (with S3 URLs if enabled)
    */
   async enhanceContentWithImages(
@@ -93,36 +97,133 @@ export class ImageService {
     project?: ProjectConfig
   ): Promise<Content> {
     try {
-      // Search for images from Unsplash
-      const unsplashImages = await this.searchImages(
-        content.title,
-        content.metadata.customFields?.fieldNiche,
-        content.metadata.tags,
-        imageCount
-      );
+      // Get image source from project config (default: 'unsplash')
+      const imageSource = project?.styleConfig?.imageSource || 'unsplash';
 
-      // Check if S3 upload is enabled for this project
-      const shouldUploadToS3 = project?.useS3ForImages && this.s3Service.isConfigured(project);
+      console.log(`[Image Service] Image source: ${imageSource}`);
 
-      let finalImages = unsplashImages;
+      let finalImages: Image[] = [];
 
-      if (shouldUploadToS3 && unsplashImages.length > 0) {
-        console.log('[Image Service] S3 upload enabled, uploading images to S3');
-        finalImages = await this.uploadImagesToS3(unsplashImages, project);
-      } else if (project?.useS3ForImages && !this.s3Service.isConfigured(project)) {
-        console.warn('[Image Service] S3 upload requested but S3 not configured, using Unsplash URLs');
+      // Route based on image source
+      switch (imageSource) {
+        case 'openai':
+          // Use OpenAI DALL-E only
+          finalImages = await this.getOpenAIImages(content, imageCount, project);
+          break;
+
+        case 'hybrid':
+          // Mix: 1 DALL-E header + (imageCount - 1) Unsplash illustrations
+          const headerImage = await this.getOpenAIImages(content, 1, project);
+          const unsplashCount = Math.max(0, imageCount - 1);
+
+          if (unsplashCount > 0) {
+            const unsplashImages = await this.getUnsplashImages(content, unsplashCount, project);
+            finalImages = [...headerImage, ...unsplashImages];
+          } else {
+            finalImages = headerImage;
+          }
+          break;
+
+        case 'none':
+          // No images
+          console.log('[Image Service] Image source set to "none", skipping images');
+          finalImages = [];
+          break;
+
+        case 'unsplash':
+        default:
+          // Use Unsplash (current behavior)
+          finalImages = await this.getUnsplashImages(content, imageCount, project);
+          break;
       }
 
-      // Update content with images (either S3 URLs or Unsplash URLs)
+      // Update content with images
       return {
         ...content,
         images: finalImages,
       };
     } catch (error) {
       console.error('[Image Service] Failed to enhance content with images:', error);
-      // Return original content if image enhancement fails
+
+      // Fallback to Unsplash if OpenAI fails (unless explicitly disabled)
+      const imageSource = project?.styleConfig?.imageSource;
+      if (imageSource === 'openai' || imageSource === 'hybrid') {
+        console.warn('[Image Service] OpenAI image generation failed, falling back to Unsplash');
+        try {
+          const fallbackImages = await this.getUnsplashImages(content, imageCount, project);
+          return { ...content, images: fallbackImages };
+        } catch (fallbackError) {
+          console.error('[Image Service] Unsplash fallback also failed');
+        }
+      }
+
+      // Return original content if all image enhancement attempts fail
       return content;
     }
+  }
+
+  /**
+   * Get images from OpenAI DALL-E
+   * @param content Content to generate images for
+   * @param count Number of images to generate
+   * @param project Project config
+   * @returns Array of AI-generated images with S3 URLs
+   */
+  private async getOpenAIImages(
+    content: Content,
+    count: number,
+    project?: ProjectConfig
+  ): Promise<Image[]> {
+    if (!this.openaiImageService) {
+      throw new Error(
+        'OpenAI image service not initialized. Cannot use "openai" or "hybrid" image source.'
+      );
+    }
+
+    console.log(`[Image Service] Generating ${count} DALL-E images`);
+
+    const openaiConfig = project?.styleConfig?.openaiImageConfig;
+    return await this.openaiImageService.generateImagesForContent(
+      content,
+      count,
+      openaiConfig,
+      project
+    );
+  }
+
+  /**
+   * Get images from Unsplash
+   * @param content Content to search images for
+   * @param count Number of images to find
+   * @param project Project config for S3 upload
+   * @returns Array of Unsplash images (with S3 URLs if enabled)
+   */
+  private async getUnsplashImages(
+    content: Content,
+    count: number,
+    project?: ProjectConfig
+  ): Promise<Image[]> {
+    // Search for images from Unsplash
+    const unsplashImages = await this.searchImages(
+      content.title,
+      content.metadata.customFields?.fieldNiche,
+      content.metadata.tags,
+      count
+    );
+
+    // Check if S3 upload is enabled for this project
+    const shouldUploadToS3 = project?.useS3ForImages && this.s3Service.isConfigured(project);
+
+    let finalImages = unsplashImages;
+
+    if (shouldUploadToS3 && unsplashImages.length > 0) {
+      console.log('[Image Service] S3 upload enabled, uploading images to S3');
+      finalImages = await this.uploadImagesToS3(unsplashImages, project);
+    } else if (project?.useS3ForImages && !this.s3Service.isConfigured(project)) {
+      console.warn('[Image Service] S3 upload requested but S3 not configured, using Unsplash URLs');
+    }
+
+    return finalImages;
   }
 
   /**

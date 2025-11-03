@@ -111,9 +111,22 @@ export interface StyleConfig {
   tone?: 'professional' | 'casual' | 'technical' | 'friendly';
   length?: 'short' | 'medium' | 'long';
   includeImages?: boolean;
+  imageSource?: 'unsplash' | 'openai' | 'hybrid' | 'none'; // Image source (default: 'unsplash')
+  openaiImageConfig?: OpenAIImageConfig; // DALL-E configuration (only used if imageSource is 'openai' or 'hybrid')
   customInstructions?: string;
   languageInstructions?: string; // e.g., "Use formal Spanish", "Include honorifics for Japanese"
   culturalConsiderations?: string; // e.g., "Avoid idioms", "Use metric system", "Reference local examples"
+}
+
+/**
+ * OpenAI DALL-E image generation configuration
+ */
+export interface OpenAIImageConfig {
+  model: 'dall-e-2' | 'dall-e-3'; // Default: 'dall-e-3'
+  size: '1024x1024' | '1792x1024' | '1024x1792'; // Default: '1024x1024'
+  quality: 'standard' | 'hd'; // DALL-E 3 only, default: 'standard' ($0.04 vs $0.08)
+  style: 'vivid' | 'natural'; // DALL-E 3 only, default: 'vivid' (hyper-real vs realistic)
+  promptEnhancement?: boolean; // Use GPT-4o-mini to enhance prompts (default: true)
 }
 
 /**

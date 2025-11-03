@@ -153,9 +153,36 @@ VALUES (
 - Uses system prompts based on StyleConfig from project settings
 
 **ImageService** (`src/services/image.service.ts`)
-- Unsplash API integration
-- `enhanceContentWithImages()` adds images to generated content
-- Automatically selects relevant images based on title/keywords
+- Multi-source image routing system (Unsplash, OpenAI DALL-E, Hybrid, None)
+- `enhanceContentWithImages()` routes to appropriate image source based on project config
+- Supports automatic fallback to Unsplash if DALL-E fails
+- Image source options:
+  - `unsplash` - Free stock photos from Unsplash API (default)
+  - `openai` - AI-generated images via DALL-E 3 ($0.04-0.08 per image)
+  - `hybrid` - 1 DALL-E header + 2 Unsplash illustrations ($0.04 per post)
+  - `none` - No images
+
+**OpenAIImageService** (`src/services/openai-image.service.ts`) ✨ NEW
+- DALL-E 3 integration for AI-generated images
+- **Methods**:
+  - `generateImage()` - Single DALL-E image generation with S3 upload
+  - `generateImagesForContent()` - Generate multiple images for blog posts
+  - `buildImagePrompt()` - Use GPT-4o-mini to craft effective DALL-E prompts
+  - `downloadAndStoreImage()` - Download DALL-E images and upload to S3 (URLs expire in 1 hour)
+- **Configuration**:
+  - Model: DALL-E 3 (recommended) or DALL-E 2
+  - Quality: Standard ($0.04) or HD ($0.08)
+  - Style: Vivid (hyper-realistic) or Natural (realistic)
+  - Size: 1024×1024, 1792×1024 (landscape), 1024×1792 (portrait)
+  - Prompt Enhancement: Optional GPT-4o-mini prompt optimization (~$0.001 per image)
+- **Requirements**: S3 configuration mandatory (DALL-E URLs expire in 1 hour)
+- **Cost**: ~$0.04-0.24 per post depending on configuration
+
+**S3Service** (`src/services/s3.service.ts`)
+- S3-compatible storage integration (Arvan S3, AWS S3, etc.)
+- Required for OpenAI image generation (DALL-E URLs expire)
+- Supports both global env vars and per-project S3 credentials
+- `uploadImage()` - Upload image buffer to S3 with public URL
 
 ### Dynamic Adapter System
 
@@ -531,18 +558,54 @@ Quick check that Supabase connection works.
 
 ## Cost Information
 
-- **OpenAI API**: PAID (~$0.04-0.11 per post with iterative generation)
+### Content Generation Costs
+
+- **OpenAI API (Content)**: PAID (~$0.04-0.11 per post with iterative generation)
   - Initial generation: ~$0.01-0.02
   - Quality rating per iteration: ~$0.001
   - Content improvement per iteration: ~$0.02
   - **Average with 2 iterations**: ~$0.04-0.08 per post
   - **Worst case with 4 iterations**: ~$0.064-0.11 per post
   - Early stopping at score ≥ 8 saves costs
+
+### Image Generation Costs ✨ NEW
+
+- **Unsplash**: FREE (default, 50 requests/hour limit)
+  - No cost, high-quality stock photos
+  - Automatic fallback if DALL-E fails
+
+- **OpenAI DALL-E 3**: PAID (Optional upgrade)
+  - **Standard Quality**: $0.04 per image
+    - 3 images/post: **$0.12 per post**
+    - Total with content: **$0.16-0.23 per post**
+  - **HD Quality**: $0.08 per image
+    - 3 images/post: **$0.24 per post**
+    - Total with content: **$0.28-0.35 per post**
+  - **Hybrid Mode** (recommended): $0.04 per post
+    - 1 DALL-E header + 2 Unsplash: **$0.04 per post**
+    - Total with content: **$0.08-0.15 per post**
+  - Prompt enhancement: ~$0.001 per image (negligible)
+
+- **S3 Storage**: Variable (required for DALL-E)
+  - Arvan S3: ~$0.01-0.03 per GB/month
+  - AWS S3: ~$0.023 per GB/month
+  - Minimal cost for images (~100 images = ~10MB)
+
+### Other Services
+
 - **SerpAPI**: Free tier (100 searches/month)
-- **Unsplash**: Free tier (50 requests/hour)
 - **Supabase**: Free tier (500MB database)
 
-**Estimated monthly cost for 30 posts**: $1.20-3.30 (OpenAI only, 2-3x increase due to quality iterations)
+### Monthly Cost Estimates (30 posts)
+
+| Configuration | Content | Images | Total/Post | Monthly (30 posts) |
+|---------------|---------|--------|------------|-------------------|
+| **Unsplash (default)** | $0.04-0.11 | Free | $0.04-0.11 | **$1.20-3.30** |
+| **Hybrid (recommended)** | $0.04-0.11 | $0.04 | $0.08-0.15 | **$2.40-4.50** |
+| **DALL-E Standard** | $0.04-0.11 | $0.12 | $0.16-0.23 | **$4.80-6.90** |
+| **DALL-E HD** | $0.04-0.11 | $0.24 | $0.28-0.35 | **$8.40-10.50** |
+
+**Recommendation**: Start with **Hybrid mode** ($2.40-4.50/month) for best value - premium header images with minimal cost increase.
 
 ## Current Development Status (October 2025)
 
@@ -620,6 +683,70 @@ Iteration 4: 1009 words, Score: 7.0/10 (Structure: 8, Depth: 6.5, Engagement: 7.
 npx tsx view-iterations.ts
 ```
 Shows iteration-by-iteration quality scores and feedback for the most recent post.
+
+#### 3. OpenAI DALL-E Image Generation (COMPLETED ✅)
+**Status**: ✅ Implemented and tested
+**Purpose**: Add AI-generated images via DALL-E 3 as an alternative to Unsplash stock photos, with flexible configuration per project
+
+**What Was Implemented**:
+- `OpenAIImageService` - New service for DALL-E 3 image generation
+- Multi-source image routing in `ImageService` (Unsplash, OpenAI, Hybrid, None)
+- Automatic S3 upload for DALL-E images (URLs expire in 1 hour)
+- GPT-4o-mini prompt enhancement for effective image generation
+- Interactive CLI configuration for image source selection
+- Cost tracking and logging
+
+**Key Features**:
+- **4 Image Source Options**:
+  - `unsplash` - Free stock photos (default)
+  - `openai` - AI-generated via DALL-E 3 ($0.04-0.08 per image)
+  - `hybrid` - 1 DALL-E header + 2 Unsplash ($0.04 per post)
+  - `none` - No images
+- **DALL-E Configuration**:
+  - Quality: Standard ($0.04) or HD ($0.08)
+  - Style: Vivid (hyper-realistic) or Natural (realistic)
+  - Size: 1024×1024, 1792×1024 (landscape), 1024×1792 (portrait)
+  - Prompt Enhancement: Optional GPT-4o-mini optimization
+- **Automatic Fallback**: Falls back to Unsplash if DALL-E fails
+- **S3 Integration**: Mandatory S3 upload (DALL-E URLs expire in 1 hour)
+
+**Configuration** (via CLI):
+```bash
+npm run cli project:add
+# When prompted for "Image source", select:
+# - Unsplash (free stock photos)
+# - OpenAI DALL-E (AI-generated, $0.04-0.08 per image)
+# - Hybrid (1 DALL-E + 2 Unsplash, $0.04 per post)
+# - None (no images)
+
+# If OpenAI/Hybrid selected, configure:
+# - Quality: Standard or HD
+# - Style: Vivid or Natural
+# - Size: Square, Landscape, or Portrait
+# - Prompt Enhancement: Yes/No
+```
+
+**Environment Variables**:
+```bash
+DEFAULT_IMAGE_SOURCE=unsplash  # Default for new projects
+OPENAI_IMAGE_MODEL=dall-e-3
+OPENAI_IMAGE_SIZE=1024x1024
+OPENAI_IMAGE_QUALITY=standard
+OPENAI_IMAGE_STYLE=vivid
+```
+
+**Cost Impact**:
+- Unsplash (default): $0.04-0.11 per post (no change)
+- Hybrid mode: $0.08-0.15 per post (+$0.04, recommended)
+- DALL-E Standard: $0.16-0.23 per post (+$0.12)
+- DALL-E HD: $0.28-0.35 per post (+$0.24)
+
+**Results**:
+- ✅ Seamless multi-source image routing
+- ✅ S3 upload ensures permanent URLs (no expiration issues)
+- ✅ GPT-enhanced prompts create relevant, high-quality images
+- ✅ Cost-effective hybrid mode balances quality and price
+- ✅ Automatic fallback ensures posts always publish
 
 ### Technical Debt & Future Enhancements
 
